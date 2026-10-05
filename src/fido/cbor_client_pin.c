@@ -558,7 +558,12 @@ int cbor_client_pin(const uint8_t *data, size_t len) {
         mbedtls_md(mbedtls_md_info_from_type(MBEDTLS_MD_SHA256), paddedNewPin, pin_byte_len, dhash);
         mbedtls_platform_zeroize(paddedNewPin, sizeof(paddedNewPin));
         pin_derive_verifier(CONST_BYTE_ARRAY(dhash, 16), hsh + 3);
-        file_put_data(ef_pin, CONST_BYTE_ARRAY(hsh, sizeof(hsh)));
+        ret = file_put_data(ef_pin, CONST_BYTE_ARRAY(hsh, sizeof(hsh)));
+        if (ret != PICOKEYS_OK) {
+            // Never report success when the PIN could not be stored (the
+            // storage refuses writes while locked).
+            CBOR_ERROR(ret == PICOKEYS_ERR_BLOCKED ? CTAP2_ERR_NOT_ALLOWED : CTAP2_ERR_PROCESSING);
+        }
         flash_commit();
 
         pin_derive_session(CONST_BYTE_ARRAY(dhash, 16), session_pin);
@@ -892,8 +897,13 @@ int cbor_client_pin(const uint8_t *data, size_t len) {
         pin_data[0] = MAX_PIN_RETRIES;
         new_pin_mismatches = 0;
 
-        file_put_data(ef_pin, CONST_BYTE_ARRAY(pin_data, sizeof(pin_data)));
+        ret = file_put_data(ef_pin, CONST_BYTE_ARRAY(pin_data, sizeof(pin_data)));
         mbedtls_platform_zeroize(pin_data, sizeof(pin_data));
+        if (ret != PICOKEYS_OK) {
+            // Never report success when the PIN could not be stored (the
+            // storage refuses writes while locked).
+            CBOR_ERROR(ret == PICOKEYS_ERR_BLOCKED ? CTAP2_ERR_NOT_ALLOWED : CTAP2_ERR_PROCESSING);
+        }
 
         flash_commit();
         file_t *ef_minpin = file_search_by_fid(EF_MINPINLEN, NULL, SPECIFY_EF);

@@ -89,6 +89,14 @@ int cbor_get_info(void) {
     if (file_get_size(ef_pin_policy) > 2) {
         lfields += 1;
     }
+    // While the storage is locked the auth-token files were never scanned,
+    // so the encrypted device-state fields (0x19, 0x1E) cannot be derived.
+    // Omit them and still answer the discovery request (the write for the
+    // dev-state file is refused while locked anyway).
+    bool storage_is_locked = low_flash_storage_locked();
+    if (storage_is_locked) {
+        lfields -= 2;
+    }
     CBOR_CHECK(cbor_encoder_create_map(&encoder, &mapEncoder, lfields));
 
     CBOR_CHECK(cbor_encode_uint(&mapEncoder, 0x01));
@@ -247,18 +255,20 @@ int cbor_get_info(void) {
 #endif
 
     file_t *ef_dev_state = file_search_by_fid(EF_DEV_STATE, NULL, SPECIFY_EF);
-    if (file_get_size(ef_dev_state) != DEV_STATE_SIZE) {
-        file_put_data(ef_dev_state, CONST_BYTE_ARRAY(random_bytes_get(32), 32));
-        flash_commit();
+    if (!storage_is_locked) {
+        if (file_get_size(ef_dev_state) != DEV_STATE_SIZE) {
+            file_put_data(ef_dev_state, CONST_BYTE_ARRAY(random_bytes_get(32), 32));
+            flash_commit();
+        }
+        if (encrypt_dev_state_block(ef_dev_state, DEV_STATE_DEV_ID, enc_identifier) != 0 ||
+            encrypt_dev_state_block(ef_dev_state, DEV_STATE_CRED_STATE, enc_cred_store_state) != 0) {
+            mbedtls_platform_zeroize(enc_identifier, sizeof(enc_identifier));
+            mbedtls_platform_zeroize(enc_cred_store_state, sizeof(enc_cred_store_state));
+            return CTAP2_ERR_PROCESSING;
+        }
+        CBOR_CHECK(cbor_encode_uint(&mapEncoder, 0x19));
+        CBOR_CHECK(cbor_encode_byte_string(&mapEncoder, enc_identifier, sizeof(enc_identifier)));
     }
-    if (encrypt_dev_state_block(ef_dev_state, DEV_STATE_DEV_ID, enc_identifier) != 0 ||
-        encrypt_dev_state_block(ef_dev_state, DEV_STATE_CRED_STATE, enc_cred_store_state) != 0) {
-        mbedtls_platform_zeroize(enc_identifier, sizeof(enc_identifier));
-        mbedtls_platform_zeroize(enc_cred_store_state, sizeof(enc_cred_store_state));
-        return CTAP2_ERR_PROCESSING;
-    }
-    CBOR_CHECK(cbor_encode_uint(&mapEncoder, 0x19));
-    CBOR_CHECK(cbor_encode_byte_string(&mapEncoder, enc_identifier, sizeof(enc_identifier)));
 
     CBOR_CHECK(cbor_encode_uint(&mapEncoder, 0x1A));
     CBOR_CHECK(cbor_encoder_create_array(&mapEncoder, &arrayEncoder, 2));
@@ -276,8 +286,10 @@ int cbor_get_info(void) {
     CBOR_CHECK(cbor_encode_uint(&mapEncoder, 0x1D));
     CBOR_CHECK(cbor_encode_uint(&mapEncoder, MAX_PIN_LENGTH));
 
-    CBOR_CHECK(cbor_encode_uint(&mapEncoder, 0x1E));
-    CBOR_CHECK(cbor_encode_byte_string(&mapEncoder, enc_cred_store_state, sizeof(enc_cred_store_state)));
+    if (!storage_is_locked) {
+        CBOR_CHECK(cbor_encode_uint(&mapEncoder, 0x1E));
+        CBOR_CHECK(cbor_encode_byte_string(&mapEncoder, enc_cred_store_state, sizeof(enc_cred_store_state)));
+    }
 
     CBOR_CHECK(cbor_encode_uint(&mapEncoder, 0x1F));
     CBOR_CHECK(cbor_encoder_create_array(&mapEncoder, &arrayEncoder, 4));

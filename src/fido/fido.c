@@ -516,6 +516,11 @@ int scan_files_fido(void) {
 }
 
 void scan_all(void) {
+    // Storage-locked boots scan nothing: no bounds were published and every
+    // write would be refused anyway (mirrors the startup skip in main()).
+    if (low_flash_storage_locked()) {
+        return;
+    }
     //file_scan_flash();
     scan_files_fido();
 }
@@ -700,7 +705,25 @@ static const cmd_t cmds[] = {
     { 0x00, 0x0 }
 };
 
+bool fido_storage_locked_reject(bool is_discovery) {
+    // One central storage-locked gate, checked at the application entry
+    // points (cbor_parse, the FIDO/U2F APDU entries, OATH and OTP) before
+    // any handler runs: while the storage is locked no bounds were
+    // published, the auth-token files were never scanned and every flash
+    // write is refused, so non-discovery requests must not reach the
+    // handlers at all (they would fault on the absent token keys or report
+    // false success). Discovery still answers: CTAP2 getInfo, U2F version,
+    // CTAPHID INIT/PING/WINK/CANCEL (handled before this dispatch) and app
+    // SELECT (handled centrally in the SDK).
+    return low_flash_storage_locked() && !is_discovery;
+}
+
 int fido_process_apdu(void) {
+    // Storage-locked gate: only the version (discovery) command is answered;
+    // SELECT never reaches the per-app entry points (it is central).
+    if (fido_storage_locked_reject(INS(apdu) == CTAP_VERSION)) {
+        return SW_FILE_FULL(); // documented storage-locked SW (0x6A84)
+    }
     if (CLA(apdu) != 0x00 && CLA(apdu) != 0x80) {
         return SW_CLA_NOT_SUPPORTED();
     }

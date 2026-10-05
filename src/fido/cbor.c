@@ -39,6 +39,13 @@ static volatile size_t cbor_len = 0;
 static volatile uint8_t cbor_cmd = 0;
 
 int cbor_parse(uint8_t cmd, const uint8_t *data, size_t len) {
+    // Storage-locked gate (see fido_storage_locked_reject): refuse every
+    // non-discovery request before the token ticks and any handler runs.
+    // getInfo (the CTAP2 discovery command, first payload byte on both the
+    // CTAPHID and the APDU transport, cmd 0x90 below) still answers.
+    if (fido_storage_locked_reject((cmd == CTAPHID_CBOR || cmd == 0x90) && len > 0 && data[0] == CTAP_GET_INFO)) {
+        return CTAP1_ERR_OTHER;
+    }
     pin_uv_auth_token_tick();
     cbor_cred_mgmt_tick();
     cbor_large_blobs_tick();

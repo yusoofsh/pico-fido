@@ -1046,6 +1046,12 @@ static const cmd_t cmds[] = {
 };
 
 static int otp_process_apdu(void) {
+    // Storage-locked gate: app SELECT is answered centrally in the SDK, so
+    // every request reaching this entry point is non-discovery. This also
+    // covers the keyboard feature-report path that calls this directly.
+    if (fido_storage_locked_reject(false)) {
+        return SW_FILE_FULL(); // documented storage-locked SW (0x6A84)
+    }
     if (CLA(apdu) != 0x00) {
         return SW_CLA_NOT_SUPPORTED();
     }
