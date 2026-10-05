@@ -25,7 +25,11 @@ if(ESP_PLATFORM)
     include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 else()
     if(NOT ENABLE_EMULATION)
-        set(PICO_USE_FASTEST_SUPPORTED_CLOCK 1)
+        # Boards that are unstable at the fastest clock (200 MHz on RP2040) can
+        # build with -DPICO_USE_FASTEST_SUPPORTED_CLOCK=0.
+        if(NOT DEFINED PICO_USE_FASTEST_SUPPORTED_CLOCK)
+            set(PICO_USE_FASTEST_SUPPORTED_CLOCK 1)
+        endif()
         include(pico_sdk_import.cmake)
     endif()
 
