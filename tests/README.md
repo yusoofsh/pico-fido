@@ -26,3 +26,10 @@ Official certification requires the separate FIDO Alliance certification
 process and any corresponding approval/listing from the FIDO Alliance. This
 documentation only states that the firmware passed the conformance tests that
 would be used as part of that certification path.
+
+## Clock-option regression (no hardware)
+
+Run `python3 tests/test_clock_override.py` with host CMake available. It evaluates
+the actual top-level clock configuration with SDK imports stubbed out: 20 cases
+cover RP2040, both RP2350 configurations, ESP32 and emulation with default, `0`,
+`1` and `OFF` inputs. This does not build firmware or test clock stability.
