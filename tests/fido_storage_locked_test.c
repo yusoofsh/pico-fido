@@ -145,30 +145,23 @@ static void assert_apdu_cbor_response(void) {
 // (file_put_data in cbor_client_pin.c) while every earlier step succeeds.
 // The emulation-only force-locked hook cannot reach it: the cbor_parse gate
 // refuses locked clientPIN requests before any handler runs. Instead the
-// test binary links with -Wl,--wrap=file_put_data, so every production call
-// lands here; when armed, the seam lets `pin_write_fail_skip` writes to the
-// PIN file pass, then fails one with the same PICOKEYS_ERR_BLOCKED a locked
-// storage returns.
-extern int __real_file_put_data(file_t *file, const_byte_array_t data);
+// verifier write consults the emulation-only hook below when it is
+// installed, so the armed seam fails exactly that write with the same
+// PICOKEYS_ERR_BLOCKED a locked storage returns; every earlier write still
+// goes through the real file layer (no linker interposition, portable).
+extern int (*pico_test_change_pin_verifier_write_hook)(file_t *file, const_byte_array_t data);
 static bool pin_write_fail_armed = false;
-static int pin_write_fail_skip = 0;
 
-static void arm_pin_write_failure(int skip) {
-    pin_write_fail_armed = true;
-    pin_write_fail_skip = skip;
+static int pin_write_fail_hook(file_t *file, const_byte_array_t data) {
+    (void)file;
+    (void)data;
+    pin_write_fail_armed = false;
+    return PICOKEYS_ERR_BLOCKED;
 }
 
-int __wrap_file_put_data(file_t *file, const_byte_array_t data) {
-    if (pin_write_fail_armed && file == ef_pin) {
-        if (pin_write_fail_skip > 0) {
-            pin_write_fail_skip--;
-        }
-        else {
-            pin_write_fail_armed = false;
-            return PICOKEYS_ERR_BLOCKED;
-        }
-    }
-    return __real_file_put_data(file, data);
+static void arm_pin_write_failure(void) {
+    pin_write_fail_armed = true;
+    pico_test_change_pin_verifier_write_hook = pin_write_fail_hook;
 }
 
 // ----- minimal client side of the pinUvAuth protocol v1 -----
@@ -490,13 +483,14 @@ static void test_unlocked_change_pin(void) {
     assert(client_pin_exchange(TEST_SUB_CHANGE_PIN, "1234", "3456789a") == CTAP2_ERR_PIN_INVALID);
     assert(client_pin_exchange(TEST_SUB_CHANGE_PIN, "23456789", "1234") == CTAP2_OK);
 
-    // Injected PIN-write failure: the seam lets the retry-counter write and
-    // the counter-restore write pass and fails the new-PIN verifier write
+    // Injected PIN-write failure: the seam fails the new-PIN verifier write
     // with the file layer's blocked error. changePIN must return a CTAP
     // error instead of reporting success while the old verifier stays
     // stored.
-    arm_pin_write_failure(2);
+    arm_pin_write_failure();
     assert(client_pin_exchange(TEST_SUB_CHANGE_PIN, "1234", "23456789") == CTAP2_ERR_NOT_ALLOWED);
+    assert(pin_write_fail_armed == false); // the seam really served the write
+    pico_test_change_pin_verifier_write_hook = NULL;
 }
 
 int main(void) {

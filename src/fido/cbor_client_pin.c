@@ -40,6 +40,13 @@ uint32_t max_usage_time_period  = 600 * 1000;
 bool needs_power_cycle = false;
 static mbedtls_ecdh_context hkey;
 static bool hkey_init = false;
+#if defined(ENABLE_EMULATION)
+// Emulation-only test seam: when installed, the host tests replace the file
+// layer for the new-PIN verifier write below, so they can fail exactly that
+// write (tests/fido_storage_locked_test.c). Firmware builds never compile
+// this.
+int (*pico_test_change_pin_verifier_write_hook)(file_t *file, const_byte_array_t data) = NULL;
+#endif
 #define PIN_LEGACY_DATA_LEN 34
 #define PIN_DATA_LEN 35
 #define PIN_RETRY_COMMIT_TIMEOUT_MS 500
@@ -758,7 +765,19 @@ int cbor_client_pin(const uint8_t *data, size_t len) {
         if (minpin_record_has_header(ef_minpin) && file_get_data(ef_minpin)[1] == 1 && mbedtls_ct_memcmp(pin_data + 3, file_get_data(ef_pin) + 3, 32) == 0) {
             CBOR_ERROR(CTAP2_ERR_PIN_POLICY_VIOLATION);
         }
+#if defined(ENABLE_EMULATION)
+        // The test hook replaces only this write: earlier PIN-file writes
+        // (the retry counter) must keep succeeding so the regression fails
+        // exactly the new-PIN verifier write.
+        if (pico_test_change_pin_verifier_write_hook != NULL) {
+            ret = pico_test_change_pin_verifier_write_hook(ef_pin, CONST_BYTE_ARRAY(pin_data, sizeof(pin_data)));
+        }
+        else {
+            ret = file_put_data(ef_pin, CONST_BYTE_ARRAY(pin_data, sizeof(pin_data)));
+        }
+#else
         ret = file_put_data(ef_pin, CONST_BYTE_ARRAY(pin_data, sizeof(pin_data)));
+#endif
 
         mbedtls_platform_zeroize(pin_data, sizeof(pin_data));
         mbedtls_platform_zeroize(dhash, sizeof(dhash));

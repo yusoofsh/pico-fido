@@ -116,8 +116,10 @@ Defense in depth: if a locked write ever slips through, `clientPIN`
 `setPIN`/`changePIN` propagate the `file_put_data` failure
 (`PICOKEYS_ERR_BLOCKED` → `CTAP2_ERR_NOT_ALLOWED`) instead of reporting
 success and skipping the commit. The changePIN propagation is covered by an
-injected write-failure regression (`--wrap=file_put_data` seam in the test
-below), together with successful unlocked changePIN controls.
+injected write-failure regression (an emulation-only hook on the new-PIN
+verifier write in the test below, so the seam is portable and never relies
+on GNU linker `--wrap`), together with successful unlocked changePIN
+controls.
 
 The gate is a plain runtime check (`low_flash_storage_locked()`): builds
 without the storage-locked state are unaffected, and the regression test
