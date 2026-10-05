@@ -298,6 +298,31 @@ if(NOT ESP_PLATFORM)
         endif()
         target_link_libraries(fido_otp_container_test PRIVATE mbedtls)
         add_test(NAME fido_otp_container_test COMMAND fido_otp_container_test)
+
+        # Storage-locked dispatch regression: drives the real application
+        # dispatchers with the storage locked (see docs/pipico/LAYOUT.md).
+        # The SDK sources are linked without main.c so the test provides its
+        # own entry point.
+        # ${SOURCES} already holds the SDK sources (PICOKEYS_SOURCES) plus
+        # the root application sources; drop the SDK main.c so the test
+        # provides its own entry point.
+        set(FIDO_STORAGE_LOCKED_TEST_SOURCES ${SOURCES})
+        list(REMOVE_ITEM FIDO_STORAGE_LOCKED_TEST_SOURCES ${CMAKE_CURRENT_LIST_DIR}/pico-keys-sdk/src/main.c)
+        add_executable(fido_storage_locked_test
+            ${FIDO_STORAGE_LOCKED_TEST_SOURCES}
+            ${CMAKE_CURRENT_LIST_DIR}/tests/fido_storage_locked_test.c
+        )
+        target_include_directories(fido_storage_locked_test PRIVATE ${INCLUDES})
+        if(MSVC)
+            target_compile_options(fido_storage_locked_test PRIVATE /W4 /WX)
+        else()
+            target_compile_options(fido_storage_locked_test PRIVATE -Wall -Wextra -Werror)
+        endif()
+        target_link_libraries(fido_storage_locked_test PRIVATE ${LIBRARIES})
+        if(NOT MSVC)
+            target_link_libraries(fido_storage_locked_test PRIVATE pthread m)
+        endif()
+        add_test(NAME fido_storage_locked_test COMMAND fido_storage_locked_test)
     else()
         target_link_libraries(
             pico_fido
