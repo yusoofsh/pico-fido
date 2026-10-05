@@ -321,6 +321,9 @@ if(NOT ESP_PLATFORM)
         target_link_libraries(fido_storage_locked_test PRIVATE ${LIBRARIES})
         if(NOT MSVC)
             target_link_libraries(fido_storage_locked_test PRIVATE pthread m)
+            # The changePIN write-failure regression interposes on the file
+            # layer through the __wrap_file_put_data seam in the test.
+            target_link_options(fido_storage_locked_test PRIVATE -Wl,--wrap=file_put_data)
         endif()
         add_test(NAME fido_storage_locked_test COMMAND fido_storage_locked_test)
     else()

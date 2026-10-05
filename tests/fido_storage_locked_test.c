@@ -25,11 +25,17 @@
 
 #include "picokeys.h"
 #include "apdu.h"
+#include "cbor.h"
 #include "ctap.h"
 #include "ctap2_cbor.h"
+#include "crypto_utils.h"
 #include "files.h"
 #include "fido.h"
 #include "hid/ctap_hid.h"
+#include "mbedtls/aes.h"
+#include "mbedtls/ecp.h"
+#include "mbedtls/md.h"
+#include "mbedtls/sha256.h"
 #include "random.h"
 #include "serial.h"
 #include "usb.h"
@@ -115,6 +121,243 @@ static uint16_t apdu_simple(uint8_t ins, uint8_t p1, uint8_t p2) {
     return apdu_dispatch(apdu, len);
 }
 
+// CTAP2-over-APDU INS (the CTAP1/CCID command table in fido.c).
+#define APDU_INS_CTAP_CBOR 0x10
+
+// APDU CTAP2: select the FIDO application, then send a CTAP_CBOR APDU whose
+// payload is the CTAP2 command (first byte = command).
+static uint16_t apdu_cbor(const uint8_t *payload, size_t len) {
+    uint8_t raw[300];
+    size_t full_len = build_apdu(raw, APDU_INS_CTAP_CBOR, 0x00, 0x00, payload, len);
+    return apdu_dispatch(raw, full_len);
+}
+
+// The response body of a successful CTAP2 APDU exchange: the CTAP2 status
+// byte followed by the CBOR map.
+static void assert_apdu_cbor_response(void) {
+    assert(res_APDU_size >= 2);
+    assert(res_APDU[0] == CTAP2_OK);
+    assert((res_APDU[1] & 0xE0) == 0xA0); // a CBOR map
+}
+
+// ----- test seam: inject a storage-write failure -----
+// The changePIN regression must fail exactly the new-PIN verifier write
+// (file_put_data in cbor_client_pin.c) while every earlier step succeeds.
+// The emulation-only force-locked hook cannot reach it: the cbor_parse gate
+// refuses locked clientPIN requests before any handler runs. Instead the
+// test binary links with -Wl,--wrap=file_put_data, so every production call
+// lands here; when armed, the seam lets `pin_write_fail_skip` writes to the
+// PIN file pass, then fails one with the same PICOKEYS_ERR_BLOCKED a locked
+// storage returns.
+extern int __real_file_put_data(file_t *file, const_byte_array_t data);
+static bool pin_write_fail_armed = false;
+static int pin_write_fail_skip = 0;
+
+static void arm_pin_write_failure(int skip) {
+    pin_write_fail_armed = true;
+    pin_write_fail_skip = skip;
+}
+
+int __wrap_file_put_data(file_t *file, const_byte_array_t data) {
+    if (pin_write_fail_armed && file == ef_pin) {
+        if (pin_write_fail_skip > 0) {
+            pin_write_fail_skip--;
+        }
+        else {
+            pin_write_fail_armed = false;
+            return PICOKEYS_ERR_BLOCKED;
+        }
+    }
+    return __real_file_put_data(file, data);
+}
+
+// ----- minimal client side of the pinUvAuth protocol v1 -----
+// Mirrors the production primitives in cbor_client_pin.c: the shared secret
+// is SHA-256 over the ECDH shared point X, the request blobs are
+// AES-256-CBC with a zero IV, and the signature is the first 16 bytes of an
+// HMAC-SHA-256 over the message.
+#define TEST_PIN_UV_AUTH_PROTOCOL 1
+#define TEST_SUB_SET_PIN 0x3
+#define TEST_SUB_CHANGE_PIN 0x4
+
+typedef struct {
+    mbedtls_ecp_group grp;
+    mbedtls_mpi d;
+    mbedtls_ecp_point Q;
+    uint8_t shared_secret[32];
+} client_pin_key_t;
+
+static void test_sha256(const uint8_t *in, size_t len, uint8_t out[32]) {
+    assert(mbedtls_sha256(in, len, out, 0) == 0);
+}
+
+static void test_aes_cbc_encrypt(const uint8_t key[32], const uint8_t *in, size_t len, uint8_t *out) {
+    mbedtls_aes_context aes;
+    uint8_t iv[IV_SIZE] = { 0 };
+    mbedtls_aes_init(&aes);
+    assert(mbedtls_aes_setkey_enc(&aes, key, 256) == 0);
+    assert(mbedtls_aes_crypt_cbc(&aes, MBEDTLS_AES_ENCRYPT, len, iv, in, out) == 0);
+    mbedtls_aes_free(&aes);
+}
+
+static void test_hmac_sha256(const uint8_t key[32], const uint8_t *msg, size_t msg_len, uint8_t out[32]) {
+    assert(mbedtls_md_hmac(mbedtls_md_info_from_type(MBEDTLS_MD_SHA256), key, 32, msg, msg_len, out) == 0);
+}
+
+static void client_key_init(client_pin_key_t *ck) {
+    mbedtls_ecp_group_init(&ck->grp);
+    mbedtls_mpi_init(&ck->d);
+    mbedtls_ecp_point_init(&ck->Q);
+    memset(ck->shared_secret, 0, sizeof(ck->shared_secret));
+}
+
+static void client_key_free(client_pin_key_t *ck) {
+    mbedtls_ecp_group_free(&ck->grp);
+    mbedtls_mpi_free(&ck->d);
+    mbedtls_ecp_point_free(&ck->Q);
+}
+
+// Derive the client key pair and the shared secret for the device key
+// published by getKeyAgreement (the COSE key's -2/-3 coordinates).
+static void client_key_agreement(client_pin_key_t *ck, const uint8_t dev_x[32], const uint8_t dev_y[32]) {
+    mbedtls_ecp_point dev_q, z;
+    uint8_t z_buf[32];
+    mbedtls_ecp_point_init(&dev_q);
+    mbedtls_ecp_point_init(&z);
+    assert(mbedtls_ecp_group_load(&ck->grp, MBEDTLS_ECP_DP_SECP256R1) == 0);
+    assert(mbedtls_mpi_read_binary(&dev_q.X, dev_x, 32) == 0);
+    assert(mbedtls_mpi_read_binary(&dev_q.Y, dev_y, 32) == 0);
+    assert(mbedtls_mpi_lset(&dev_q.Z, 1) == 0);
+    assert(mbedtls_ecp_gen_keypair(&ck->grp, &ck->d, &ck->Q, random_fill_iterator, NULL) == 0);
+    assert(mbedtls_ecp_mul(&ck->grp, &z, &ck->d, &dev_q, random_fill_iterator, NULL) == 0);
+    assert(mbedtls_mpi_write_binary(&z.X, z_buf, sizeof(z_buf)) == 0);
+    test_sha256(z_buf, sizeof(z_buf), ck->shared_secret);
+    mbedtls_ecp_point_free(&z);
+    mbedtls_ecp_point_free(&dev_q);
+}
+
+// getKeyAgreement over the real dispatcher, then derive the shared secret
+// from the device's COSE key ({1: {1: 2, 3: alg, -1: 1, -2: X, -3: Y}}).
+static void device_key_agreement(client_pin_key_t *ck) {
+    static const uint8_t req[] = { CTAP_CLIENT_PIN, 0xA2, 0x01, 0x01, 0x02, 0x02 }; // {1: 1, 2: 2}
+    assert(cbor_dispatch(req) == CTAP2_OK);
+
+    CborParser parser;
+    CborValue it, elem, celem;
+    int64_t key;
+    size_t len;
+    uint8_t dev_x[32] = { 0 }, dev_y[32] = { 0 };
+    assert(cbor_parser_init(ctap_resp->init.data + 1, res_APDU_size, 0, &parser, &it) == CborNoError);
+    assert(cbor_value_enter_container(&it, &elem) == CborNoError);
+    while (!cbor_value_at_end(&elem)) {
+        assert(cbor_value_get_int64(&elem, &key) == CborNoError);
+        assert(cbor_value_advance(&elem) == CborNoError); // now at the value
+        if (key == 1 && cbor_value_get_type(&elem) == CborMapType) {
+            assert(cbor_value_enter_container(&elem, &celem) == CborNoError);
+            while (!cbor_value_at_end(&celem)) {
+                int64_t cose_key;
+                assert(cbor_value_get_int64(&celem, &cose_key) == CborNoError);
+                assert(cbor_value_advance(&celem) == CborNoError);
+                if (cose_key == -2 || cose_key == -3) {
+                    uint8_t *dst = (cose_key == -2) ? dev_x : dev_y;
+                    len = 32;
+                    assert(cbor_value_copy_byte_string(&celem, dst, &len, NULL) == CborNoError);
+                    assert(len == 32);
+                    assert(cbor_value_advance(&celem) == CborNoError);
+                }
+                else {
+                    assert(cbor_value_advance(&celem) == CborNoError);
+                }
+            }
+            assert(cbor_value_leave_container(&elem, &celem) == CborNoError);
+        }
+        else {
+            assert(cbor_value_advance(&elem) == CborNoError);
+        }
+    }
+    client_key_agreement(ck, dev_x, dev_y);
+}
+
+// Encode the client's COSE key as a nested map (the value of request key 3).
+static void client_encode_cose_key(const client_pin_key_t *ck, CborEncoder *map) {
+    CborEncoder cose_map;
+    uint8_t x[32], y[32];
+    assert(mbedtls_mpi_write_binary(&ck->Q.X, x, sizeof(x)) == 0);
+    assert(mbedtls_mpi_write_binary(&ck->Q.Y, y, sizeof(y)) == 0);
+    assert(cbor_encoder_create_map(map, &cose_map, 5) == CborNoError);
+    assert(cbor_encode_uint(&cose_map, 1) == CborNoError); // kty: EC2
+    assert(cbor_encode_uint(&cose_map, 2) == CborNoError);
+    assert(cbor_encode_uint(&cose_map, 3) == CborNoError); // alg: ECDH-ES+HKDF-256
+    assert(cbor_encode_int(&cose_map, FIDO2_ALG_ECDH_ES_HKDF_256) == CborNoError);
+    assert(cbor_encode_int(&cose_map, -1) == CborNoError); // crv: P-256
+    assert(cbor_encode_uint(&cose_map, FIDO2_CURVE_P256) == CborNoError);
+    assert(cbor_encode_int(&cose_map, -2) == CborNoError);
+    assert(cbor_encode_byte_string(&cose_map, x, sizeof(x)) == CborNoError);
+    assert(cbor_encode_int(&cose_map, -3) == CborNoError);
+    assert(cbor_encode_byte_string(&cose_map, y, sizeof(y)) == CborNoError);
+    assert(cbor_encoder_close_container(map, &cose_map) == CborNoError);
+}
+
+// Full clientPIN exchange over the real dispatcher: getKeyAgreement, then
+// the requested subcommand with protocol-v1 blobs for (old_pin, new_pin).
+// setPIN omits the old-pin blob; changePIN authenticates over both blobs
+// and sends the encrypted old-pin hash in pinHashEnc.
+static int client_pin_exchange(uint8_t subcommand, const char *old_pin, const char *new_pin) {
+    client_pin_key_t ck;
+    size_t new_len = strlen(new_pin);
+    uint8_t padded[64] = { 0 };
+    uint8_t new_enc[64];
+    uint8_t msg[sizeof(new_enc) + IV_SIZE];
+    size_t msg_len = sizeof(new_enc);
+    uint8_t pin_hash_enc[IV_SIZE] = { 0 };
+    uint8_t sig[16], hmac[32];
+    uint8_t req[300];
+    CborEncoder enc, map;
+    int ret;
+
+    assert(new_len > 0 && new_len < sizeof(padded));
+    client_key_init(&ck);
+    device_key_agreement(&ck);
+
+    memcpy(padded, new_pin, new_len);
+    test_aes_cbc_encrypt(ck.shared_secret, padded, sizeof(padded), new_enc);
+    memcpy(msg, new_enc, sizeof(new_enc));
+    if (subcommand == TEST_SUB_CHANGE_PIN) {
+        uint8_t old_hash[32];
+        size_t old_len = strlen(old_pin);
+        assert(old_len > 0 && old_len < 64);
+        test_sha256((const uint8_t *)old_pin, old_len, old_hash);
+        test_aes_cbc_encrypt(ck.shared_secret, old_hash, sizeof(pin_hash_enc), pin_hash_enc);
+        memcpy(msg + sizeof(new_enc), pin_hash_enc, sizeof(pin_hash_enc));
+        msg_len += sizeof(pin_hash_enc);
+    }
+    test_hmac_sha256(ck.shared_secret, msg, msg_len, hmac);
+    memcpy(sig, hmac, sizeof(sig));
+    memset(msg, 0, sizeof(msg));
+
+    cbor_encoder_init(&enc, req + 1, sizeof(req) - 1, 0);
+    assert(cbor_encoder_create_map(&enc, &map, subcommand == TEST_SUB_CHANGE_PIN ? 6 : 5) == CborNoError);
+    assert(cbor_encode_uint(&map, 1) == CborNoError); // pinUvAuthProtocol
+    assert(cbor_encode_uint(&map, TEST_PIN_UV_AUTH_PROTOCOL) == CborNoError);
+    assert(cbor_encode_uint(&map, 2) == CborNoError); // subcommand
+    assert(cbor_encode_uint(&map, subcommand) == CborNoError);
+    assert(cbor_encode_uint(&map, 3) == CborNoError); // key agreement
+    client_encode_cose_key(&ck, &map);
+    assert(cbor_encode_uint(&map, 4) == CborNoError); // pinUvAuthParam
+    assert(cbor_encode_byte_string(&map, sig, sizeof(sig)) == CborNoError);
+    assert(cbor_encode_uint(&map, 5) == CborNoError); // newPinEnc
+    assert(cbor_encode_byte_string(&map, new_enc, sizeof(new_enc)) == CborNoError);
+    if (subcommand == TEST_SUB_CHANGE_PIN) {
+        assert(cbor_encode_uint(&map, 6) == CborNoError); // pinHashEnc
+        assert(cbor_encode_byte_string(&map, pin_hash_enc, sizeof(pin_hash_enc)) == CborNoError);
+    }
+    assert(cbor_encoder_close_container(&enc, &map) == CborNoError);
+    req[0] = CTAP_CLIENT_PIN;
+    ret = cbor_dispatch_n(req, 1 + cbor_encoder_get_buffer_size(&enc, req + 1));
+    client_key_free(&ck);
+    return ret;
+}
+
 static void test_locked_ctap2(void) {
     // makeCredential, getAssertion and setPIN payloads (any parse result is
     // fine: the gate refuses them before any handler runs).
@@ -166,6 +409,17 @@ static void test_locked_apdu_apps(void) {
     assert(apdu_simple(CTAP_REGISTER, 0x00, 0x00) == LOCKED_SW);
     assert(apdu_simple(0x41, 0x00, 0x00) == LOCKED_SW); // vendor
 
+    // CTAP2 over APDU/CCID: getInfo is discovery and must answer while
+    // locked (SELECT then `00 10 00 00 01 04`); every other CTAP2 payload
+    // stays refused at this outer gate (cbor_parse refuses it again).
+    assert(apdu_select(fido_aid) == CTAP_SW_NO_ERROR);
+    assert(apdu_cbor(NULL, 0) == LOCKED_SW); // no payload: not discovery
+    static const uint8_t locked_make_cred[] = { CTAP_MAKE_CREDENTIAL };
+    assert(apdu_cbor(locked_make_cred, sizeof(locked_make_cred)) == LOCKED_SW);
+    static const uint8_t locked_get_info[] = { CTAP_GET_INFO };
+    assert(apdu_cbor(locked_get_info, sizeof(locked_get_info)) == CTAP_SW_NO_ERROR);
+    assert_apdu_cbor_response();
+
     // OATH: every request is non-discovery (SELECT is central).
     assert(apdu_select(oath_aid) == CTAP_SW_NO_ERROR);
     assert(apdu_simple(0xA1, 0x00, 0x00) == LOCKED_SW); // LIST
@@ -194,6 +448,9 @@ static void test_unlocked_control(void) {
     assert(apdu_select(u2f_aid) == CTAP_SW_NO_ERROR);
     assert(apdu_simple(CTAP_VERSION, 0x00, 0x00) == CTAP_SW_NO_ERROR);
     assert(apdu_select(fido_aid) == CTAP_SW_NO_ERROR);
+    static const uint8_t apdu_get_info[] = { CTAP_GET_INFO };
+    assert(apdu_cbor(apdu_get_info, sizeof(apdu_get_info)) == CTAP_SW_NO_ERROR);
+    assert_apdu_cbor_response();
     assert(apdu_select(oath_aid) == CTAP_SW_NO_ERROR);
     assert(apdu_select(otp_aid) == CTAP_SW_NO_ERROR);
 
@@ -217,6 +474,29 @@ static void test_unlocked_control(void) {
     assert(apdu_simple(0xA1, 0x00, 0x00) != LOCKED_SW); // LIST
     assert(apdu_select(otp_aid) == CTAP_SW_NO_ERROR);
     assert(apdu_simple(0x01, 0x01, 0x00) != LOCKED_SW); // configure slot
+}
+
+static void test_unlocked_change_pin(void) {
+    // Fresh device: setPIN first (a full clientPIN exchange over the real
+    // dispatcher).
+    assert(client_pin_exchange(TEST_SUB_SET_PIN, NULL, "1234") == CTAP2_OK);
+
+    // Control: an unlocked changePIN succeeds and the stored verifier
+    // really changes (the old PIN no longer verifies, the new one does).
+    // These run before the write-failure injection below: a changePIN that
+    // fails mid-way leaves the device keys re-wrapped for the rejected new
+    // PIN, so the device refuses later changes until a reset.
+    assert(client_pin_exchange(TEST_SUB_CHANGE_PIN, "1234", "23456789") == CTAP2_OK);
+    assert(client_pin_exchange(TEST_SUB_CHANGE_PIN, "1234", "3456789a") == CTAP2_ERR_PIN_INVALID);
+    assert(client_pin_exchange(TEST_SUB_CHANGE_PIN, "23456789", "1234") == CTAP2_OK);
+
+    // Injected PIN-write failure: the seam lets the retry-counter write and
+    // the counter-restore write pass and fails the new-PIN verifier write
+    // with the file layer's blocked error. changePIN must return a CTAP
+    // error instead of reporting success while the old verifier stays
+    // stored.
+    arm_pin_write_failure(2);
+    assert(client_pin_exchange(TEST_SUB_CHANGE_PIN, "1234", "23456789") == CTAP2_ERR_NOT_ALLOWED);
 }
 
 int main(void) {
@@ -245,6 +525,7 @@ int main(void) {
     file_scan_flash();
     init_fido();
     test_unlocked_control();
+    test_unlocked_change_pin();
 
     assert(chdir(cwd_backup) == 0);
     printf("fido_storage_locked_test: all assertions passed\n");
