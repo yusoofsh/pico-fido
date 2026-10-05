@@ -111,10 +111,11 @@ Resolved flags: `PICO_BOARD=vcc-gnd_yd-rp2040_4m`,
   (AUTOMATED TESTS PASSED) but has not observed the board (HARDWARE TESTED
   = NOT_RUN).
 - CI: the SDK workflow `pipico-sdk-tests` ran on the fork and concluded
-  success on the SDK SHA pushed in the first M1 push, before the
-  external-advance merges (run `37304456019`, job `host-tests`, observed
-  2026-10-05; see `MANIFEST.md`). The run on the re-pushed SDK head
-  (`f48d23d…`) is recorded once observed. The root workflow does not exist
+  success twice: on the SDK SHA pushed in the first M1 push, before the
+  external-advance merges (run `37304456019`, job `host-tests`), and on the
+  re-pushed head `f48d23d…` after the merges (run `37387049402`, job
+  `host-tests`, including the flash-size-limit python regression step); both
+  observed 2026-10-05 (see `MANIFEST.md`). The root workflow does not exist
   yet (M5); there is no CI evidence for the root fork, which stays "evidence
   not found", not "failed".
 

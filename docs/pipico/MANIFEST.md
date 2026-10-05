@@ -107,14 +107,22 @@ First M1 push (observed 2026-10-05, before the external-advance merges):
   job `host-tests` completed with conclusion **success** (`gh run list` /
   `gh run view`).
 
-Re-push with the external-advance merges (2026-10-05; results recorded in a
-following docs commit once observed):
+Re-push with the external-advance merges (observed 2026-10-05):
 
-- The mission branches now contain the merge commits recorded in the source
-  tuple (`7973a99…` SDK, `ceff701…` root) plus the adaptation, gitlink and
-  docs commits. The SDK branch is pushed first, then the root branch whose
-  gitlink pins `f48d23d…`; no force-push, and the `fix/*` refs are never
-  written.
+- Both mission branches were pushed again, SDK first: `pipico/storage-baseline`
+  fast-forwarded `42e740a40b565ac08e823328dac7f1b810c4ae73..f48d23ddb55add5fb3118884e64f7456a29b70bd`
+  and `pipico/integration-v1` fast-forwarded
+  `80fa7f25c39539e9f2eb158d86ecb67a2f65a8b7..f163038eac2ff48c46357f53654355114c11d44b`
+  (`git push` exit 0 on both; no force-push, and the `fix/*` refs were never
+  written). `git ls-remote` confirms the two heads, and the root gitlink
+  (`f48d23d…`) equals the SDK remote head.
+- The SDK CI workflow ran on the new SDK head and succeeded: run `37387049402`
+  (https://github.com/yusoofsh/pico-keys-sdk/actions/runs/37387049402),
+  workflow `pipico-sdk-tests`, event `push`, branch `pipico/storage-baseline`,
+  headSha `f48d23ddb55add5fb3118884e64f7456a29b70bd`, job `host-tests`
+  completed with conclusion **success**, including the new
+  `Run the flash-size-limit python regression` step (`gh run list` /
+  `gh run view`).
 - Nothing is merged into `main` and no mission PR exists yet; draft PRs are
   the M5 release feature.
 
