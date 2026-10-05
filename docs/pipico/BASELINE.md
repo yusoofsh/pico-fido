@@ -21,21 +21,23 @@ hardware behaviour.
 |---|---|---|---|
 | `yusoofsh/pico-fido` | `fix/rp2040-clock-override` | `1cd988de0a3acdce47b2d732f9e9c92017595900` | base of the mission branch |
 | `yusoofsh/pico-fido` | `main` | `f01fa1e2817a845e44d788f3f633a1f122ce332e` | reference; future draft-PR target |
-| `yusoofsh/pico-fido` | `pipico/integration-v1` | `dcd7e8321ae6ac97fd0baf0742bacf1c17b6853d` | mission branch (local; not pushed yet) |
+| `yusoofsh/pico-fido` | `pipico/integration-v1` | `eaeb9c25c96e6f4c01331fc7732e67297330eb29` | mission branch (pushed 2026-10-05; docs commits follow) |
 | `yusoofsh/pico-keys-sdk` | `fix/flash-size-limit` | `a26c831ceb20d5d6c60e97cdc457e426d2abf3ed` | base of the mission branch |
 | `yusoofsh/pico-keys-sdk` | `main` | `50699e53e8ada214c27f6c9b66ea3b6f127fc655` | reference (upstream layout); future draft-PR target |
-| `yusoofsh/pico-keys-sdk` | `pipico/storage-baseline` | `d0ed4c35bcefb3601ee81eb0b981a15bd87022ef` | mission branch (local; not pushed yet) |
+| `yusoofsh/pico-keys-sdk` | `pipico/storage-baseline` | `4ca0d2a40b565ac08e823328dac7f1b810c4ae73` | mission branch (pushed 2026-10-05) |
 
 - The root gitlink `pico-keys-sdk` resolves to
-  `d0ed4c35bcefb3601ee81eb0b981a15bd87022ef`, identical to the SDK mission
+  `4ca0d2a40b565ac08e823328dac7f1b810c4ae73`, identical to the SDK mission
   branch HEAD (observed: `git ls-tree HEAD pico-keys-sdk`).
 - `.gitmodules` URL is `https://github.com/yusoofsh/pico-keys-sdk` (observed).
 - The fork `main` and `fix/*` SHAs were cross-checked with `git ls-remote`
   and match the local refs; they are never modified by this mission.
-- Nothing is merged and nothing is pushed: `git ls-remote` shows no
-  `pipico/*` ref on either fork. `git push --dry-run` returned HTTP 403 on
-  both forks (observed 2026-10-05), matching the mission-readiness note that
-  the Factory GitHub App must be authorized first. Reported as-is.
+- Nothing is merged. The mission branches were pushed on 2026-10-05, the SDK
+  branch before the root branch, after `git push --dry-run` succeeded on both
+  forks (the earlier HTTP 403s were resolved by the Factory GitHub App
+  authorization). `git ls-remote` shows the two `pipico/*` refs as the only
+  new heads; every pre-mission branch is unchanged at its recorded SHA (see
+  `MANIFEST.md` publication state and VAL-PUB-004).
 
 ## Pinned build tuple (observed)
 
@@ -63,7 +65,7 @@ Resolved flags: `PICO_BOARD=vcc-gnd_yd-rp2040_4m`,
 | Area | Status | Evidence |
 |---|---|---|
 | SDK storage work (flash layout module, reordered `low_flash_init`, harness) | SOURCE REVIEWED | commits `9256c2b..d0ed4c3` on `pipico/storage-baseline`, one concern each |
-| Root integration work (submodule URL, gitlinks, build preset, clock gate, product string, bounds gate) | SOURCE REVIEWED | commits `6d9b989..dcd7e83` on `pipico/integration-v1`, one concern each |
+| Root integration work (submodule URL, gitlinks, build preset, clock gate, product string, bounds gate) | SOURCE REVIEWED | commits `6d9b989..eaeb9c2` on `pipico/integration-v1`, one concern each |
 | ARM firmware, Pipico preset | BUILT | `scripts/pipico/build.sh` exit 0; no CMake or compiler warnings; clock and image-bounds gates PASS |
 | Clock gate | AUTOMATED TESTS PASSED | `SYS_CLK_HZ=125000000`, `USB_CLK_HZ=48000000`, `PICO_USE_FASTEST_SUPPORTED_CLOCK=0`; cap and `FORCE_BUTTON_WAIT` present in 206/206 TUs |
 | Image-bounds gate | AUTOMATED TESTS PASSED | image write end `0x10084b00` (offset `0x84b00` of the `0x100000` limit); erase footprint end `0x85000`; headroom `0x7b500` bytes |
@@ -85,8 +87,11 @@ Resolved flags: `PICO_BOARD=vcc-gnd_yd-rp2040_4m`,
   `1cd988d` author; this mission resolves the clock at build time
   (AUTOMATED TESTS PASSED) but has not observed the board (HARDWARE TESTED
   = NOT_RUN).
-- CI claims do not exist yet: no workflow has run on either fork because
-  nothing is pushed. An empty query is "evidence not found", not "failed".
+- CI: the SDK workflow `pipico-sdk-tests` ran on the fork and concluded
+  success on the pushed SDK SHA (run `37304456019`, job `host-tests`,
+  observed 2026-10-05). The root workflow does not exist yet (M5); there is
+  no CI evidence for the root fork, which stays "evidence not found", not
+  "failed".
 
 ## Honesty rules applied in these documents
 

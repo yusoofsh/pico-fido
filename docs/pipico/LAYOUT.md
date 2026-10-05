@@ -2,7 +2,8 @@
 
 Status: **SOURCE REVIEWED**. The layout constants are code in
 `pico-keys-sdk/src/fs/flash_layout.{c,h}` at
-`d0ed4c35bcefb3601ee81eb0b981a15bd87022ef`; the build numbers below were
+`4ca0d2a40b565ac08e823328dac7f1b810c4ae73` (the pushed SDK tip; the files are
+unchanged since the review commit `9256c2b`); the build numbers below were
 printed by the image-bounds gate during this session's ARM build
 (AUTOMATED TESTS PASSED). No hardware observation is behind this document.
 
