@@ -16,8 +16,8 @@
 #     manually-specified cmake variables;
 #   - records the resolved toolchain and dependency tuple in
 #     <build dir>/pipico-build-tuple.txt;
-#   - runs the post-build gates (check-clock.py, and check-image-bounds.py
-#     once present) and exits nonzero if any gate fails.
+#   - runs the post-build gates (check-clock.py and check-image-bounds.py)
+#     and exits nonzero if any gate fails.
 
 set -uo pipefail
 
@@ -111,12 +111,9 @@ clock_gate="$script_dir/check-clock.py"
 echo "pipico-build: running clock gate"
 python3 "$clock_gate" "$build_dir" || gates_failed=1
 bounds_gate="$script_dir/check-image-bounds.py"
-if [ -x "$bounds_gate" ]; then
-  echo "pipico-build: running image bounds gate"
-  python3 "$bounds_gate" "$build_dir" || gates_failed=1
-else
-  echo "pipico-build: image bounds gate not present yet (skipped)"
-fi
+[ -x "$bounds_gate" ] || fail "missing bounds gate $bounds_gate"
+echo "pipico-build: running image bounds gate"
+python3 "$bounds_gate" "$build_dir" || gates_failed=1
 [ $gates_failed -eq 0 ] || { echo "pipico-build: gate(s) failed"; exit 1; }
 
 echo "pipico-build: OK"
