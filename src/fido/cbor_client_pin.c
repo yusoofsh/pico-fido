@@ -758,10 +758,16 @@ int cbor_client_pin(const uint8_t *data, size_t len) {
         if (minpin_record_has_header(ef_minpin) && file_get_data(ef_minpin)[1] == 1 && mbedtls_ct_memcmp(pin_data + 3, file_get_data(ef_pin) + 3, 32) == 0) {
             CBOR_ERROR(CTAP2_ERR_PIN_POLICY_VIOLATION);
         }
-        file_put_data(ef_pin, CONST_BYTE_ARRAY(pin_data, sizeof(pin_data)));
+        ret = file_put_data(ef_pin, CONST_BYTE_ARRAY(pin_data, sizeof(pin_data)));
 
         mbedtls_platform_zeroize(pin_data, sizeof(pin_data));
         mbedtls_platform_zeroize(dhash, sizeof(dhash));
+        if (ret != PICOKEYS_OK) {
+            // Never report success when the new PIN verifier could not be
+            // stored (the storage refuses writes while locked): the old PIN
+            // would remain valid despite the success response.
+            CBOR_ERROR(ret == PICOKEYS_ERR_BLOCKED ? CTAP2_ERR_NOT_ALLOWED : CTAP2_ERR_PROCESSING);
+        }
         if (minpin_record_has_header(ef_minpin) && file_get_data(ef_minpin)[1] == 1) {
             uint8_t *tmpf = (uint8_t *) calloc(1, file_get_size(ef_minpin));
             memcpy(tmpf, file_get_data(ef_minpin), file_get_size(ef_minpin));
