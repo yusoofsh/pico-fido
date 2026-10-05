@@ -110,7 +110,7 @@ First M1 push (observed 2026-10-05, before the external-advance merges):
 Re-push with the external-advance merges (observed 2026-10-05):
 
 - Both mission branches were pushed again, SDK first: `pipico/storage-baseline`
-  fast-forwarded `42e740a40b565ac08e823328dac7f1b810c4ae73..f48d23ddb55add5fb3118884e64f7456a29b70bd`
+  fast-forwarded `42e740ab9b7a8c6e90ebfaa0849372c53f188263..f48d23ddb55add5fb3118884e64f7456a29b70bd`
   and `pipico/integration-v1` fast-forwarded
   `80fa7f25c39539e9f2eb158d86ecb67a2f65a8b7..f163038eac2ff48c46357f53654355114c11d44b`
   (`git push` exit 0 on both; no force-push, and the `fix/*` refs were never
