@@ -10,7 +10,9 @@ Verifies, from the compile_commands.json of a Pipico build:
   - no translation unit carries a -DSYS_CLK_* override or a
     -DPICO_USE_FASTEST_SUPPORTED_CLOCK=1 override;
   - every translation unit defines PICO_FLASH_SIZE_LIMIT_BYTES=0x200000
-    and FORCE_BUTTON_WAIT.
+    and FORCE_BUTTON_WAIT. Command-line -D/-U flags (attached and
+    two-token forms) are processed in order per TU with the last one
+    winning, so a -U cannot hide behind an earlier -D of the same macro.
 
 Python stdlib only. Exit code 0 = pass, 1 = gate failure.
 
@@ -51,18 +53,33 @@ def tu_arguments(entry):
 
 
 def tu_defines(args):
-    """Parse -D flags from an argument list into {name: value_or_None}."""
+    """Parse -D/-U flags from an argument list into {name: value_or_None}.
+
+    Both the attached (-DX, -UX) and the two-token (-D X, -U X) forms are
+    processed in command order, so the result is the effective macro set
+    the compiler sees: the last -D or -U for a macro wins, and a -U
+    removes a definition made earlier on the same command line.
+    """
     defines = {}
     i = 0
     while i < len(args):
         arg = args[i]
-        if arg == "-D":
+        if arg in ("-D", "-U"):
+            flag = arg
             i += 1
-            if i < len(args):
-                name, sep, value = args[i].partition("=")
-                defines[name] = value if sep else None
-        elif arg.startswith("-D"):
-            name, sep, value = arg[2:].partition("=")
+            if i >= len(args):
+                break
+            token = args[i]
+        elif arg.startswith("-D") or arg.startswith("-U"):
+            flag = arg[:2]
+            token = arg[2:]
+        else:
+            i += 1
+            continue
+        if flag == "-U":
+            defines.pop(token, None)
+        else:
+            name, sep, value = token.partition("=")
             defines[name] = value if sep else None
         i += 1
     return defines
@@ -334,6 +351,31 @@ def self_test():
         tu(), {"file": "/sdk/x.c", "arguments": [
             "cc", "-DPICO_FLASH_SIZE_LIMIT_BYTES=0x200000", "-DFORCE_BUTTON_WAIT"],
             "directory": "/b"}, tu()]), []))
+
+    # -U handling: a TU may undefine a required macro (attached or two-token
+    # form) or a later -D may override an earlier -U; the gate must look at
+    # the effective macro set, in command order, with the last flag winning.
+    for label, extra, wants in [
+        ("tu -U cap attached", ("-UPICO_FLASH_SIZE_LIMIT_BYTES",),
+         ["PICO_FLASH_SIZE_LIMIT_BYTES missing"]),
+        ("tu -U cap two tokens", ("-U", "PICO_FLASH_SIZE_LIMIT_BYTES"),
+         ["PICO_FLASH_SIZE_LIMIT_BYTES missing"]),
+        ("tu -U wait attached", ("-UFORCE_BUTTON_WAIT",),
+         ["FORCE_BUTTON_WAIT missing"]),
+        ("tu -U wait two tokens", ("-U", "FORCE_BUTTON_WAIT"),
+         ["FORCE_BUTTON_WAIT missing"]),
+        ("tu -D cap then -U cap", ("-DPICO_FLASH_SIZE_LIMIT_BYTES=0x200000",
+                                   "-UPICO_FLASH_SIZE_LIMIT_BYTES"),
+         ["PICO_FLASH_SIZE_LIMIT_BYTES missing"]),
+        ("tu -U then -DSYS_CLK_HZ override", ("-USYS_CLK_HZ", "-DSYS_CLK_HZ=200000000"),
+         ["forbidden clock override"]),
+        ("tu -DSYS_CLK_HZ two tokens", ("-D", "SYS_CLK_HZ=200000000"),
+         ["forbidden clock override"]),
+        ("tu cap redefinition last wins", ("-DPICO_FLASH_SIZE_LIMIT_BYTES=0x400000",
+                                           "-DPICO_FLASH_SIZE_LIMIT_BYTES=0x200000"), []),
+        ("tu wait -U then -D last wins", ("-UFORCE_BUTTON_WAIT", "-DFORCE_BUTTON_WAIT=1"), []),
+    ]:
+        cases.append((label, scan_tus(tus(extra=extra)), wants))
 
     cmd = preprocess_command(tu(suffix="hardware_clocks/clocks.c"))
     problems = []
