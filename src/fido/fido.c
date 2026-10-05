@@ -712,16 +712,21 @@ bool fido_storage_locked_reject(bool is_discovery) {
     // published, the auth-token files were never scanned and every flash
     // write is refused, so non-discovery requests must not reach the
     // handlers at all (they would fault on the absent token keys or report
-    // false success). Discovery still answers: CTAP2 getInfo, U2F version,
-    // CTAPHID INIT/PING/WINK/CANCEL (handled before this dispatch) and app
-    // SELECT (handled centrally in the SDK).
+    // false success). Discovery still answers: CTAP2 getInfo (both the
+    // CTAPHID and the APDU/CCID transport), U2F version, CTAPHID
+    // INIT/PING/WINK/CANCEL (handled before this dispatch) and app SELECT
+    // (handled centrally in the SDK).
     return low_flash_storage_locked() && !is_discovery;
 }
 
 int fido_process_apdu(void) {
-    // Storage-locked gate: only the version (discovery) command is answered;
-    // SELECT never reaches the per-app entry points (it is central).
-    if (fido_storage_locked_reject(INS(apdu) == CTAP_VERSION)) {
+    // Storage-locked gate: only discovery is answered here (U2F VERSION and
+    // CTAP2 getInfo); SELECT never reaches the per-app entry points (it is
+    // central). CTAP2 requests other than getInfo are refused again behind
+    // this gate, in cbor_parse.
+    bool is_discovery = (INS(apdu) == CTAP_VERSION) ||
+        (INS(apdu) == CTAP_CBOR && apdu.nc > 0 && apdu.data[0] == CTAP_GET_INFO);
+    if (fido_storage_locked_reject(is_discovery)) {
         return SW_FILE_FULL(); // documented storage-locked SW (0x6A84)
     }
     if (CLA(apdu) != 0x00 && CLA(apdu) != 0x80) {
