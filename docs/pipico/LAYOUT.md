@@ -104,6 +104,7 @@ entry point **before any handler runs**:
 | Entry point | While locked | Allowed (discovery) requests |
 |---|---|---|
 | `cbor_parse` (CTAP2 dispatch, both the CTAPHID and the CCID/APDU transport) | `CTAP1_ERR_OTHER` (`0x7F`) | `getInfo` only (first payload byte `CTAP_GET_INFO`); it omits the encrypted dev-state fields (`0x19`/`0x1E`) so it answers without crypto or storage |
+| `fido_process_apdu` (CTAP1/CTAP2 APDU entry, CCID) | SW `0x6A84` | `VERSION` and CTAP2 `getInfo` (INS `0x10` with first payload byte `CTAP_GET_INFO`); other CTAP2 payloads are refused here and again in `cbor_parse` |
 | `u2f_process_apdu` (FIDO/U2F) | SW `0x6A84` | `VERSION` only |
 | `oath_process_apdu` (OATH) | SW `0x6A84` | none (non-SELECT commands; SELECT is answered centrally in the SDK) |
 | `otp_process_apdu` (OTP/keyboard) | SW `0x6A84` | none |
@@ -114,7 +115,9 @@ these entry points (transport/handler layers in the SDK) and still answer.
 Defense in depth: if a locked write ever slips through, `clientPIN`
 `setPIN`/`changePIN` propagate the `file_put_data` failure
 (`PICOKEYS_ERR_BLOCKED` → `CTAP2_ERR_NOT_ALLOWED`) instead of reporting
-success and skipping the commit.
+success and skipping the commit. The changePIN propagation is covered by an
+injected write-failure regression (`--wrap=file_put_data` seam in the test
+below), together with successful unlocked changePIN controls.
 
 The gate is a plain runtime check (`low_flash_storage_locked()`): builds
 without the storage-locked state are unaffected, and the regression test
