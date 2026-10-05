@@ -449,7 +449,7 @@ def self_test():
 
     # Negative cases: VAL-BUILD-007 (a)-(e) and malformed inputs.
     run_case("(a) elf PT_LOAD LMA range ends 0x10100001", False, elf_bytes=build_elf32([
-        {"vaddr": 0x10000000, "lma": 0x10000000, "filesz": 0x10001001, "memsz": 0x10001001},
+        {"vaddr": 0x10000000, "lma": 0x10000000, "filesz": 0x100001, "memsz": 0x100001},
     ]))
     run_case("(b) elf .data LMA crosses the marker, text below", False, elf_bytes=build_elf32([
         {"vaddr": 0x10000000, "lma": 0x10000000, "filesz": 0x80000, "memsz": 0x80000},
