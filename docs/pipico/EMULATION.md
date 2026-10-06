@@ -2,8 +2,9 @@
 
 Status of this document: **AUTOMATED TESTS PASSED** for the behavioral claims
 below. They were observed by running `scripts/pipico/run-emu-tests.sh`
-(315 passed, 3 skipped, 1 deselected, including
-`tests/pipico/test_button_emulation.py`) and the SDK host tests on
+(344 passed, 3 skipped, 1 deselected, including
+`tests/pipico/test_button_emulation.py`, `tests/pipico/test_up_enforcement.py`
+and `tests/pipico/test_otp_challenge.py`) and the SDK host tests on
 **2026-10-06**. Nothing here is evidence of hardware behavior; the emulated
 button does not exist in firmware builds.
 
@@ -143,5 +144,6 @@ scripts/pipico/run-emu-tests.sh
 directory (with `PICOKEYS_EMULATION_BUTTON_FILE` exported for it), runs
 `pytest tests` from the repository root with only the known vault
 deselection, and stops the emulator. Expected baseline: 306 passed, 3
-skipped upstream plus `tests/pipico/test_button_emulation.py` and
-`tests/test_clock_override.py` (315 passed, 3 skipped, 1 deselected).
+skipped upstream plus the `tests/pipico` modules (button emulation, UP
+enforcement, OTP challenge-response) and `tests/test_clock_override.py`
+(344 passed, 3 skipped, 1 deselected).
