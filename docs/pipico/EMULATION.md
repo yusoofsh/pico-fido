@@ -178,9 +178,17 @@ Pipico fixes this in the shared SDK transport code (`src/usb/hid/hid.c`,
    the marker together with the drained queues.
 4. While the marker is set, new CTAPHID packets on the SAME channel are
    not admitted: `tud_hid_set_report_cb` buffers them (CANCEL and INIT
-   pass through; a full buffer answers `CTAP1_ERR_CHANNEL_BUSY`), and
-   `hid_task()` replays them once the marked late completion has been
-   dropped. This closes the fast-retry race (scrutiny round 3): a retry
+   pass through), and `hid_task()` replays them once the marked late
+   completion has been dropped. The buffer is sized for ONE complete
+   maximum-size CTAPHID message (the transport's reassembly limit
+   `CTAP_MAX_PACKET_SIZE`: one init packet plus 128 continuations, i.e.
+   129 reports), because the host is free to send every report of a
+   fragmented retry inside the unwind window - SET_REPORT control
+   transfers bypass the interrupt endpoint's 10 ms pacing. Only a packet
+   that cannot fit - a second message or an interleaved channel - is
+   answered with `CTAP1_ERR_CHANNEL_BUSY`; no report of the outstanding
+   request is ever dropped or misframed. This closes the fast-retry race
+   (scrutiny round 3): a retry
    written immediately after the `0x2D` - before the next 10 ms button
    poll - used to be admitted while the aborted transaction was still
    unwinding; its admission cleared `cancel_button`, so the aborted
@@ -189,9 +197,13 @@ Pipico fixes this in the shared SDK transport code (`src/usb/hid/hid.c`,
    delivered (or misdelivered) instead of the retry's answer. Now the
    cancellation is always observed first, the cancelled request's late
    completion is dropped exactly once, and the retry is processed exactly
-   once with its own correctly framed response. The deterministic
-   regression lives in the SDK host ctest `hid_cancel_retry_test` scenes
-   `fast_retry` and `cancel_before_wait_start`; the emulator suite pins
+   once with its own correctly framed response - including a retry
+   fragmented over 4 or more reports and one at the maximum message size,
+   delivered entirely before the next cancellation poll (scrutiny round
+   4). The deterministic regressions live in the SDK host ctest
+   `hid_cancel_retry_test` scenes `fast_retry`, `fast_retry_fragmented`
+   (4 reports), `fast_retry_max_size` (129 reports) and
+   `cancel_before_wait_start`; the emulator suite pins
    the end-to-end same-channel behavior
    (`test_cancel_fast_retry_before_button_poll_raw`).
 
