@@ -541,7 +541,15 @@ void init_fido(void) {
 }
 
 int wait_button_pressed(void) {
-    return wait_button_pressed_timeout(button_timeout_seconds());
+    uint32_t timeout_seconds = button_timeout_seconds();
+#ifdef FORCE_BUTTON_WAIT
+    /* Pipico UP policy: a configured timeout of 0 (the fresh-device
+       default) still waits for a real BOOT press, about 30 s. */
+    if (timeout_seconds == 0) {
+        timeout_seconds = 30;
+    }
+#endif
+    return wait_button_pressed_timeout(timeout_seconds);
 }
 
 int wait_button_pressed_timeout(uint32_t timeout_seconds) {

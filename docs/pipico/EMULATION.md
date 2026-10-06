@@ -20,7 +20,11 @@ cmake -S . -B build -G Ninja -DENABLE_EMULATION=1 -DFORCE_BUTTON_WAIT=ON
   code described here. The emulator opens no other ports.
 - `FORCE_BUTTON_WAIT=ON` is the Pipico UP policy: operations that require
   user presence wait for a real (or emulated) BOOT press even when the
-  configured timeout is 0.
+  configured timeout is 0. The forced set is CTAP2 makeCredential (always,
+  even with a valid pinUvAuthParam), getAssertion with up=true or up
+  omitted, authenticatorReset, authenticatorSelection, U2F register and
+  U2F enforce-and-sign; silent operations (up=false assertions, U2F
+  check-only, getInfo, discovery) never wait.
 - Standard mbedtls; EdDSA is off.
 
 ## The emulated BOOT button
@@ -70,10 +74,12 @@ never observed.
 
 The `timeout:0` command restores that default resolution. The wait then
 follows the firmware rules for the configured timeout of 0: forced
-operations (CTAP2 makeCredential, getAssertion with up=true,
-authenticatorSelection, U2F register, U2F enforce-and-sign) wait about
-30 s because the build has `FORCE_BUTTON_WAIT`; a CTAP2 reset with no
-configured timeout completes without a wait, exactly like the firmware.
+operations (CTAP2 makeCredential — always, even with a valid
+pinUvAuthParam; getAssertion with up=true or up omitted, whatever the
+credential's require_button flag says; authenticatorReset;
+authenticatorSelection; U2F register; U2F enforce-and-sign) wait about
+30 s because the build has `FORCE_BUTTON_WAIT`. A CTAP2 reset with no
+configured timeout waits too, like every other forced operation.
 Set `timeout:2` (or the environment variable) to make no-touch resets and
 other tests finish quickly.
 
