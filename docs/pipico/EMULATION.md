@@ -176,17 +176,36 @@ Pipico fixes this in the shared SDK transport code (`src/usb/hid/hid.c`,
    the timeout normally and receives its own completion.
 3. `card_exit()` (a fresh `CTAPHID_INIT`, or a transport switch) clears
    the marker together with the drained queues.
+4. While the marker is set, new CTAPHID packets on the SAME channel are
+   not admitted: `tud_hid_set_report_cb` buffers them (CANCEL and INIT
+   pass through; a full buffer answers `CTAP1_ERR_CHANNEL_BUSY`), and
+   `hid_task()` replays them once the marked late completion has been
+   dropped. This closes the fast-retry race (scrutiny round 3): a retry
+   written immediately after the `0x2D` - before the next 10 ms button
+   poll - used to be admitted while the aborted transaction was still
+   unwinding; its admission cleared `cancel_button`, so the aborted
+   request's UP wait never observed the cancellation, swallowed the
+   retry's `EV_CMD_AVAILABLE` and its own timeout completion was later
+   delivered (or misdelivered) instead of the retry's answer. Now the
+   cancellation is always observed first, the cancelled request's late
+   completion is dropped exactly once, and the retry is processed exactly
+   once with its own correctly framed response. The deterministic
+   regression lives in the SDK host ctest `hid_cancel_retry_test` scenes
+   `fast_retry` and `cancel_before_wait_start`; the emulator suite pins
+   the end-to-end same-channel behavior
+   (`test_cancel_fast_retry_before_button_poll_raw`).
 
 Observed on one channel with no resync (raw CTAPHID probe): the cancel is
-answered with exactly one `CTAPHID_CBOR len=1 payload=2d`; a following
-no-touch makeCredential runs its wait and returns a correctly framed
-one-byte `0x27`/`0x2F` error; a following pressed makeCredential returns
-one full attestation; a following getInfo returns its own correctly
-sequenced response. The CTAP1 (CTAPHID MSG) and CCID paths are untouched:
-their cancels neither fabricate a response nor stop the timeout, and
-their completion frames flow as before. `btn.resync()` stays available
-for legitimate reconnects (for example module-boundary hygiene), but no
-test needs it after a cancel any more.
+answered with exactly one `CTAPHID_CBOR len=1 payload=2d`; a retry sent
+immediately after it (no settle) is answered promptly with its own
+response; a following no-touch makeCredential runs its wait and returns a
+correctly framed one-byte `0x27`/`0x2F` error; a following pressed
+makeCredential returns one full attestation; a following getInfo returns
+its own correctly sequenced response. The CTAP1 (CTAPHID MSG) and CCID
+paths are untouched: their cancels neither fabricate a response nor stop
+the timeout, and their completion frames flow as before. `btn.resync()`
+stays available for legitimate reconnects (for example module-boundary
+hygiene), but no test needs it after a cancel any more.
 
 ## Running the tests
 
