@@ -64,6 +64,14 @@ never observed.
 | `cancel` | Aborts the active wait (the client sees CTAP2_ERR_OPERATION_DENIED). Discarded when no wait is active. |
 | `timeout:<seconds>` | Emulation-only override of the user-presence wait timeout in seconds (see below). |
 
+The file holds one command per write; writing two commands into one file
+(for example `none\ntimeout:2`) parses as nothing and is ignored entirely. A
+`press-after` command is delivered only if a wait is active when its
+deadline passes: the delivery deadline is compared against the time the wait
+started, so a deadline that passes while no wait is active is discarded even
+when no idle poll observed it (a press that happened before a request never
+authorizes that request).
+
 ### Timeout override
 
 `button_timeout_seconds()` normally returns the firmware configuration
@@ -118,8 +126,12 @@ core0 — the decision and its reason are in `THREAT-MODEL.md`
 printf 'auto\n'      > /run/button.cmd.tmp && mv /run/button.cmd.tmp /run/button.cmd
 
 # A reset that never completes: the client sees CTAP2_ERR_USER_ACTION_TIMEOUT
-# after 2 seconds.
-printf 'none\ntimeout:2\n' > /run/button.cmd.tmp && mv /run/button.cmd.tmp /run/button.cmd
+# after 2 seconds. One command per write, each write allowed to settle
+# (alternatively, export PICOKEYS_EMULATION_BUTTON_TIMEOUT=2 for the
+# emulator process before it starts).
+printf 'timeout:2\n' > /run/button.cmd.tmp && mv /run/button.cmd.tmp /run/button.cmd
+sleep 0.1
+printf 'none\n'      > /run/button.cmd.tmp && mv /run/button.cmd.tmp /run/button.cmd
 
 # Deliver exactly one press into the next wait (for example the reset above).
 printf 'press\n'     > /run/button.cmd.tmp && mv /run/button.cmd.tmp /run/button.cmd
