@@ -65,12 +65,11 @@ def remove_btn_file():
 def resync(device):
     """Reopen the HID connection.
 
-    A CTAPHID_CANCEL makes the firmware answer with a fabricated
-    keepalive-cancel response while the aborted command may still emit its
-    own frames plus pending keepalives; those stale frames desynchronize
-    the next call's reassembly. A fresh connection performs a new CTAPHID
-    INIT, which resets the device channel (and its TX ring) and starts a
-    clean socket.
+    Since the same-channel CTAPHID_CANCEL fix (the cancelled transaction's
+    late completion is dropped by card_status), a cancel leaves no stale
+    frames behind and tests no longer need this after a cancel. Keep it
+    where a reconnect is legitimately intended, for example module-boundary
+    hygiene when a module hands the transport over between HID and CCID.
     """
     from fido2.hid import CtapHidDevice
     from fido2.ctap2 import Ctap2

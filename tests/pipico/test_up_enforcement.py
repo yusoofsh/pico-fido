@@ -35,7 +35,6 @@ from btn import (
     FLAG_UV,
     FLAG_UP,
     UPNEEDED,
-    resync,
     run_in_thread,
     timed,
     wait_for_keepalive,
@@ -57,16 +56,10 @@ def ctap2(device):
 
 @pytest.fixture(autouse=True)
 def auto_button(device):
-    """Every test starts and ends in auto mode with no timeout override.
-
-    A fresh HID connection is opened per test: a previous test's cancelled
-    transaction can leave stale response frames on the wire, and the fresh
-    CTAPHID INIT resets the device channel (and its TX ring) so every test
-    starts from a clean transport state."""
+    """Every test starts and ends in auto mode with no timeout override."""
     if os.environ.get(BTN_ENV):
         write_cmd("timeout:0")
         write_cmd("auto")
-        resync(device)
     yield
     if os.environ.get(BTN_ENV):
         write_cmd("timeout:0")
@@ -290,7 +283,6 @@ def test_reset_zero_timeout_still_waits(device):
     device.dev._send_cancel()
     th.join(timeout=5)
     assert outcome.get("err") in (ERR_KEEPALIVE_CANCEL, ERR_OPERATION_DENIED), outcome
-    resync(device)  # the cancelled transaction leaves stale frames on the wire
 
 
 # --- CTAP2 selection -----------------------------------------------------------
@@ -513,7 +505,6 @@ def test_ctaphid_cancel_aborts_getassertion(device):
     dt = time.time() - t0
     assert outcome.get("err") == ERR_KEEPALIVE_CANCEL, outcome
     assert dt < 2.0, dt
-    resync(device)  # the cancelled transaction leaves stale frames on the wire
 
 
 def test_no_press_reuse_across_requests(device):
