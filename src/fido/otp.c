@@ -973,14 +973,16 @@ static int cmd_otp(void) {
             if (otp_config->cfg_flags & CHAL_BTN_TRIG) {
                 status_byte = 0x20;
                 otp_status(_is_otp);
-#ifndef ENABLE_EMULATION
+                // The UP wait runs in emulation builds too, where it goes
+                // through the emulated BOOT button; from the transports
+                // served by the main loop it is a bounded local wait, so it
+                // cannot hang core0 (see docs/pipico/EMULATION.md).
                 if (wait_button_pressed()) {
                     status_byte = 0x00;
                     otp_status(_is_otp);
                     mbedtls_platform_zeroize(data, sizeof(data));
                     return SW_CONDITIONS_NOT_SATISFIED();
                 }
-#endif
                 status_byte = 0x10;
                 apdu.rdata = rdata_bk;
             }

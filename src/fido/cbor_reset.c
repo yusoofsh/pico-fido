@@ -116,6 +116,10 @@ int cbor_reset(void) {
         return CTAP2_ERR_NOT_ALLOWED;
     }
 #endif
+#endif
+    // The UP wait runs in emulation builds too, where it goes through the
+    // emulated BOOT button (auto mode accepts immediately, like upstream).
+    // The power-on window above stays a firmware-only check.
     int ret = wait_button_pressed();
     if (ret == 1) {
         return CTAP2_ERR_USER_ACTION_TIMEOUT;
@@ -123,7 +127,6 @@ int cbor_reset(void) {
     else if (ret == 2) {
         return CTAP2_ERR_OPERATION_DENIED;
     }
-#endif
     if (fido_reset_storage() != PICOKEYS_OK) {
         return CTAP2_ERR_PROCESSING;
     }

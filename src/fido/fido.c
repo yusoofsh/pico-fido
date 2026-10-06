@@ -45,6 +45,9 @@
 #include "crypto_utils.h"
 #include "otp.h"
 #include "event.h"
+#if defined(ENABLE_EMULATION)
+#include "usb/emulation/button_emul.h"
+#endif
 
 extern char *rp_id;
 extern size_t rp_id_len;
@@ -560,6 +563,31 @@ int wait_button_pressed_timeout(uint32_t timeout_seconds) {
     do {
         queue_remove_blocking(&usb_to_card_q, &val);
     } while (val != EV_BUTTON_PRESSED && val != EV_BUTTON_TIMEOUT && val != EV_BUTTON_CANCELLED);
+#elif defined(ENABLE_EMULATION)
+    /* Auto mode (no control file, or the `auto` command) is the plain
+       upstream emulation: the wait completes immediately, exactly as the
+       baseline does. Controlled modes (usb/emulation/button_emul.h) run a
+       real wait. */
+    if (!emul_button_auto()) {
+        if (timeout_seconds == 0 && !force_button_wait) {
+            /* Mirrors the firmware rule: an unforced zero timeout completes
+               without a wait. */
+        }
+        else if (emul_button_on_main_thread()) {
+            /* Under emulation the CCID and keyboard-HID transports are
+               served by the main-loop thread; blocking on usb_to_card_q
+               from here would deadlock the very loop that must dispatch
+               the button events. The emulated button is polled locally
+               instead (still bounded by the timeout). */
+            return emul_button_wait_local(timeout_seconds == 0 ? 30000 : timeout_seconds * 1000);
+        }
+        else {
+            queue_try_add(&card_to_usb_q, &val);
+            do {
+                queue_remove_blocking(&usb_to_card_q, &val);
+            } while (val != EV_BUTTON_PRESSED && val != EV_BUTTON_TIMEOUT && val != EV_BUTTON_CANCELLED);
+        }
+    }
 #endif
     if (val == EV_BUTTON_TIMEOUT) {
         return 1;
