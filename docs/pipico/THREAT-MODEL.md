@@ -40,6 +40,38 @@ Nothing in V1 defends against that.
 - Silent operations (getAssertion with `up=false`, U2F check-only, getInfo)
   stay silent.
 
+## OTP challenge-response with the button trigger (CHAL_BTN_TRIG)
+
+A slot configured for challenge-response with `CHAL_BTN_TRIG` requires a
+BOOT press before the device computes the response.
+
+- **Over CCID** the command runs on core1 (the command thread). It waits
+  through the shared UP wait: core0 serves the button state and answers the
+  wait. No press within the configured timeout is refused with SW `0x6985`
+  (`SW_CONDITIONS_NOT_SATISFIED`) and no response is computed; the wait
+  itself is real (enforced by the emulated-button tests,
+  `tests/pipico/test_otp_challenge.py`). The success response follows the
+  ISO 7816 GET RESPONSE paging because the branch publishes a status frame
+  before the wait.
+- **Over the keyboard-HID feature-report path** (`otp_hid_set_report_cb` →
+  `otp_process_apdu` → `cmd_otp`) the command runs **on core0, inside the
+  TinyUSB callback**. Blocking there on `usb_to_card_q` would deadlock
+  core0: the only code that can answer the wait (`card_status`,
+  `button_task`) lives on the same core0 loop, which is blocked inside the
+  callback. This is an upstream structural hazard; it cannot be fixed by a
+  local wait either, because nothing on core0 can poll the button until the
+  callback returns.
+- **Decision (firmware builds): refuse instead of hanging.** In
+  `PICO_PLATFORM`/`ESP_PLATFORM` builds the keyboard-HID path returns
+  SW `0x6985` for a `CHAL_BTN_TRIG` slot without calling
+  `wait_button_pressed()` and without computing a response; the host polls
+  the status frame and sees no response data. Deferring the wait to the
+  main loop would require restructuring the upstream YubiKey HID framing
+  into a resumable state machine — out of proportion to the benefit, since
+  the slot remains fully usable over CCID, whose command thread can wait
+  safely. The refusal strictly removes the upstream hang; it does not add
+  a new one.
+
 ## The companion is a design boundary, not hardware isolation
 
 - The companion (gesture parser, keyboard arbiter, transmitter) runs on

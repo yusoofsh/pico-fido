@@ -98,6 +98,15 @@ the main-loop thread (`emul_button_wait_local`); CTAP2 HID runs its waits on
 the CBOR thread and synchronizes with the main loop through the existing
 button queues.
 
+The CCID `CHAL_BTN_TRIG` wait is pinned by `tests/pipico/test_otp_challenge.py`:
+a HMAC-SHA1 challenge-response slot over CCID is refused with SW `0x6985`
+only after the configured timeout when the button is never touched, and
+returns the host-computed `HMAC-SHA1(aes_key || uid, challenge)` with one
+press (a press is consumed by exactly one challenge-response). In firmware
+builds the keyboard-HID variant of this wait is refused instead of blocking
+core0 — the decision and its reason are in `THREAT-MODEL.md`
+("OTP challenge-response with the button trigger").
+
 ### Examples
 
 ```sh
