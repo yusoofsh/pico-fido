@@ -174,20 +174,24 @@ Pipico fixes this in the shared SDK transport code (`src/usb/hid/hid.c`,
    consumes that marked event and drops it: no frame is written for it,
    and the timeout state is left untouched, so the next request re-arms
    the timeout normally and receives its own completion.
-3. `card_exit()` (a fresh `CTAPHID_INIT`, or a transport switch) clears
-   the marker together with the drained queues.
-4. While the marker is set, new CTAPHID packets on the SAME channel are
-   not admitted: `tud_hid_set_report_cb` buffers them (CANCEL and INIT
-   pass through), and `hid_task()` replays them once the marked late
-   completion has been dropped. The buffer is sized for ONE complete
-   maximum-size CTAPHID message (the transport's reassembly limit
+3. `card_exit()` (a `CTAPHID_INIT` in the idle state, or a transport
+   switch) clears the marker together with the drained queues. An `INIT`
+   while a transaction is in flight does not call it - see point 5.
+4. While the marker is set, new CTAPHID packets are not admitted:
+   `tud_hid_set_report_cb` buffers them, and `hid_task()` replays them once
+   the marked late completion has been dropped. The buffer is sized for ONE
+   complete maximum-size CTAPHID message (the transport's reassembly limit
    `CTAP_MAX_PACKET_SIZE`: one init packet plus 128 continuations, i.e.
    129 reports), because the host is free to send every report of a
    fragmented retry inside the unwind window - SET_REPORT control
-   transfers bypass the interrupt endpoint's 10 ms pacing. Only a packet
-   that cannot fit - a second message or an interleaved channel - is
-   answered with `CTAP1_ERR_CHANNEL_BUSY`; no report of the outstanding
-   request is ever dropped or misframed. This closes the fast-retry race
+   transfers bypass the interrupt endpoint's 10 ms pacing. The buffer
+   belongs to the unwinding channel only (scrutiny round 5): a report of
+   any OTHER channel is answered with `CTAP1_ERR_CHANNEL_BUSY` immediately,
+   without consuming a ring slot and without disturbing the buffered
+   message, and only a second message on the unwinding channel itself
+   overflows the ring into `CTAP1_ERR_CHANNEL_BUSY`. No report of the
+   outstanding request is ever dropped or misframed. This closes the
+   fast-retry race
    (scrutiny round 3): a retry
    written immediately after the `0x2D` - before the next 10 ms button
    poll - used to be admitted while the aborted transaction was still
@@ -198,14 +202,38 @@ Pipico fixes this in the shared SDK transport code (`src/usb/hid/hid.c`,
    cancellation is always observed first, the cancelled request's late
    completion is dropped exactly once, and the retry is processed exactly
    once with its own correctly framed response - including a retry
-   fragmented over 4 or more reports and one at the maximum message size,
-   delivered entirely before the next cancellation poll (scrutiny round
-   4). The deterministic regressions live in the SDK host ctest
-   `hid_cancel_retry_test` scenes `fast_retry`, `fast_retry_fragmented`
-   (4 reports), `fast_retry_max_size` (129 reports) and
-   `cancel_before_wait_start`; the emulator suite pins
+   fragmented over 4 or more reports, one at the maximum message size, and
+   one interleaved with a competing channel's report before the next
+   cancellation poll, which the competing channel answers `CHANNEL_BUSY`
+   (scrutiny rounds 4 and 5). The deterministic regressions live in the
+   SDK host ctest `hid_cancel_retry_test` scenes `fast_retry`,
+   `fast_retry_fragmented` (4 reports), `fast_retry_max_size` (129
+   reports), `competing_cid_during_unwind` and `cancel_before_wait_start`;
+   the emulator suite pins
    the end-to-end same-channel behavior
    (`test_cancel_fast_retry_before_button_poll_raw`).
+5. The HID side tracks an explicit small transaction state machine
+   (`src/usb/hid/hid.c`): `IDLE` / `BUSY(cid)` / `UNWINDING(cid)`, kept in
+   step with the transport signals (the response timeout disarming ends
+   `BUSY`; the consumed marker ends `UNWINDING`). `CTAPHID_INIT`
+   resynchronization never blocks on the worker while a transaction is in
+   flight: the UP wait removes and discards every non-button event, so the
+   blocking `EV_EXIT` handshake of `card_exit()` would never be
+   acknowledged and core0 would deadlock (scrutiny round 5, reachable both
+   after a `CTAPHID_CANCEL` and with a plain active UP wait). On the busy
+   or unwinding channel, `INIT` therefore aborts non-blockingly: the
+   buffered reports of the dead session are discarded, the cancellation is
+   armed for the active wait (`cancel_button`; the marker is also set when
+   no `CTAPHID_CANCEL` was seen, so the abort's late completion is dropped
+   and the admission gate stays closed until the unwind completes), and
+   the `INIT` response is written immediately - no keepalive-cancel frame
+   is fabricated, because the abort is not a host cancel. An `INIT` of a
+   different channel only allocates that channel and touches neither the
+   in-flight transaction, the unwind nor the ring. Only in `IDLE` does
+   `INIT` run the classic `card_exit()` teardown. The deterministic
+   regressions are the `hid_cancel_retry_test` scenes
+   `init_after_cancel_active_wait` and `init_during_active_wait` (each
+   with a hard alarm budget so a deadlock fails instead of hanging).
 
 Observed on one channel with no resync (raw CTAPHID probe): the cancel is
 answered with exactly one `CTAPHID_CBOR len=1 payload=2d`; a retry sent
@@ -236,4 +264,4 @@ deselection, and stops the emulator. Expected baseline: 306 passed, 3
 skipped upstream plus the `tests/pipico` modules (button emulation, UP
 enforcement, same-channel cancel regression, OTP challenge-response,
 P-256 register/sign/verify regression) and `tests/test_clock_override.py`
-(347 passed, 3 skipped, 1 deselected).
+(348 passed, 3 skipped, 1 deselected).
