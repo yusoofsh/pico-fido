@@ -686,6 +686,9 @@ static bool otp_slot_offset_valid(uint8_t p1, uint8_t p2) {
 }
 
 bool _is_otp = false;
+/* True only while cmd_otp runs from the keyboard-HID feature-report
+ * callback (otp_hid_set_report_cb) on core0 inside the TinyUSB callback. */
+static bool otp_hid_apdu_active = false;
 static int cmd_otp(void) {
     uint8_t p1 = P1(apdu), p2 = P2(apdu);
     if (p1 == 0x01 || p1 == 0x03) { // Configure slot
@@ -971,12 +974,28 @@ static int cmd_otp(void) {
             int ret = 0;
             uint8_t *rdata_bk = apdu.rdata;
             if (otp_config->cfg_flags & CHAL_BTN_TRIG) {
+#if defined(PICO_PLATFORM) || defined(ESP_PLATFORM)
+                /* The keyboard-HID feature-report path (otp_hid_set_report_cb
+                 * -> otp_process_apdu -> cmd_otp) runs on core0 inside the
+                 * TinyUSB callback. wait_button_pressed() would block on
+                 * usb_to_card_q there, and the only code that can answer it
+                 * (card_status/button_task) lives on the same core0 loop,
+                 * which is blocked inside this callback: waiting would hang
+                 * core0 forever. Refuse the request instead of blocking;
+                 * the slot stays usable over CCID, whose command thread is
+                 * core1. Decision recorded in docs/pipico/THREAT-MODEL.md. */
+                if (otp_hid_apdu_active) {
+                    mbedtls_platform_zeroize(data, sizeof(data));
+                    return SW_CONDITIONS_NOT_SATISFIED();
+                }
+#endif
                 status_byte = 0x20;
                 otp_status(_is_otp);
-                // The UP wait runs in emulation builds too, where it goes
-                // through the emulated BOOT button; from the transports
-                // served by the main loop it is a bounded local wait, so it
-                // cannot hang core0 (see docs/pipico/EMULATION.md).
+                /* In emulation builds this wait goes through the emulated
+                 * BOOT button: the CCID command thread blocks on the button
+                 * queues while the main loop answers it, and transports
+                 * served by the main loop itself use the bounded local wait
+                 * (see docs/pipico/EMULATION.md). */
                 if (wait_button_pressed()) {
                     status_byte = 0x00;
                     otp_status(_is_otp);
@@ -1119,7 +1138,9 @@ static int otp_hid_set_report_cb(uint8_t itf, uint8_t report_id, hid_report_type
                         apdu.header[2] = slot_id;
                         apdu.header[3] = 0;
                         _is_otp = true;
+                        otp_hid_apdu_active = true;
                         int ret = otp_process_apdu();
+                        otp_hid_apdu_active = false;
                         if (ret == 0x9000 && res_APDU_size > 0) {
                             otp_send_frame(apdu.rdata, apdu.rlen);
                         }
