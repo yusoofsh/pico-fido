@@ -48,23 +48,36 @@ software levels stand on the final tuple too.
 
 - **Root built SHA** (all build inputs, the SHA the release evidence was
   built from): `b31a8ab969536d754a7737c3ffe12bf7c6e3da5f` — CI run
-  `37685884106` was green on it. The commits after it on the branch are
-  **evidence-only**, named explicitly: `6499200` + `5ba8b08` (the
-  release-evidence docs bundle), `6def65d` ("ci: upload pico_fido.bin",
-  an artifact-collection-only workflow change), `aa09cf4` (the
-  `MANIFEST.md` push-receipt row) and this documentation commit —
-  `git log b31a8ab..HEAD` enumerates them exactly. Each touches only
-  `docs/` or the artifact-collection lines of
-  `.github/workflows/pipico.yml`: **no build input changes** (observed
-  directly: the CI artifacts of runs `37682443999` (source `5833bc2`),
+  `37685884106` was green on it. Every commit after it on the branch, named
+  explicitly (verified with `git log --oneline b31a8ab..HEAD` in the
+  correction session):
+  `6499200` (the release-evidence docs bundle) and `5ba8b08` (the
+  release-evidence manifest/handoff refresh), `6def65d` ("ci: upload
+  pico_fido.bin", an artifact-collection-only workflow change), `aa09cf4`
+  (the `MANIFEST.md` push-receipt row), `5e250a5` (the draft-PR and
+  bin-upload receipt docs) and `0e74670` (the final-head run and
+  pre-existing-upstream-PR docs) — all six are docs-only or
+  artifact-collection-only and change no build input — then the
+  documentation-correction commits: `6218308` (a gitlink-only bump to SDK
+  `e96e50208d6dcc78baa69c52de1e3340fd17749b`, a README-only SDK commit on
+  top of `654fbda…` that changes no compiled input), `9e0ff77` and
+  `7f02b07` (checklist/README corrections, docs-only) — and this
+  documentation commit, which completes the enumeration; its eventual SHA
+  and the final successful run are recorded in the mission publication
+  record (a commit cannot contain the run id of its own push). The
+  published push of this branch ended at `0e74670…` with green run
+  `37693278603` (push event, verified); the correction commits above are
+  published by the final publication feature, which records their receipt
+  the same way. Binaries of runs `37682443999` (source `5833bc2`),
   `37685884106` (`b31a8ab`), `37687857080` (`5ba8b08`) and `37690147169`
   (`aa09cf4`) were downloaded and re-hashed in the handoff session —
   `uf2`/`elf` are byte-identical across all four; the `bin` file was not
   uploaded before run `37690147169` (its hash was recorded in each
   artifact's `manifest.txt` only) and the downloaded `bin` of run
-  `37690147169` hashes exactly to that recorded value). The definitive root head is the branch tip; its
-  green run and push receipt are recorded in the mission publication
-  record (a commit cannot contain the run id of its own push).
+  `37690147169` hashes exactly to that recorded value. README-only SDK
+  commits change no compiled input, so these observations carry over to
+  the later gitlink bumps; the final artifact manifest of the final
+  successful push run remains the authoritative final tuple.
 - **SDK SHA**: `654fbda1046c0dba3832ff520f7d1ea25d1df45b` (head of
   `pipico/companion-hooks`, CI run `37685874677` green on it; a README-only
   commit on top of `3201dbd0e6972a97510c08d21d1386de130c62e2`); the root
@@ -97,35 +110,61 @@ software levels stand on the final tuple too.
 - **Publication receipts** (every push of the mission branches, M2–M5, with
   old..new ranges and CI run ids): `MANIFEST.md`, "OBSERVED: push receipts".
 
-## Upstream workflow guards on the fork (scope and limits)
+## Upstream workflow guards and their API-disable states (scope and limits)
 
-`git diff 1cd988d..5833bc2 -- .github/workflows/{test,nightly,codeql}.yml`
-contains exactly one job-level line per file, added by commit `5833bc2`
+The commit-level guard: `git diff 1cd988d..5833bc2 --
+.github/workflows/{test,nightly,codeql}.yml` contains exactly one
+job-level line per file, added by commit `5833bc2`
 ("ci: guard upstream workflow jobs to the upstream repository"):
 `if: github.repository == 'polhenarejos/pico-fido'` on `jobs.build`
 (`test.yml`), `jobs.nightly` (`nightly.yml`) and `jobs.analyze`
-(`codeql.yml`). Triggers, steps, permissions and `pipico.yml` are unchanged.
+(`codeql.yml`). Triggers, steps, permissions and `pipico.yml` are
+unchanged; no workflow file was edited after `5833bc2`.
+
+Current Actions states on `yusoofsh/pico-fido` (verified 2026-10-07 after
+release-scrutiny round 1 with `gh api
+repos/yusoofsh/pico-fido/actions/workflows`):
+
+- `Emulation and test` (`test.yml`, id `377864048`): **disabled_manually**
+  — the opening of draft PR #1 registered it (it has a `pull_request`
+  trigger), and the mission then disabled it through the authorized API
+  (`gh workflow disable 377864048 -R yusoofsh/pico-fido`).
+- `CodeQL` (`codeql.yml`, id `377864049`): **disabled_manually**, same
+  cause and same API call (`gh workflow disable 377864049`).
+- `Nightly deploy` (`nightly.yml`): **unregistered** (absent from the
+  workflow API; its only trigger is a schedule, and schedules register
+  from the default branch). If it ever registers, disable it through the
+  API (`gh workflow disable "Nightly deploy" -R yusoofsh/pico-fido`) and
+  record the new state.
+- `pipico` (`pipico.yml`, id `377719483`) on the root fork and
+  `pipico-sdk-tests` (id `375356112`) on the SDK fork are **active** and
+  must stay active.
+
+While `test.yml` and `codeql.yml` were registered (between the opening of
+draft PR #1 and the API disable), every run they produced on
+`pipico/integration-v1` was `skipped` by the job-level guards — observed
+`conclusion=skipped` for `37691366874`, `37691667733` and `37693286723`
+(test.yml) and `37691367029`, `37691667654` and `37693286677`
+(codeql.yml); no failed run and no publishing run.
+
+Earlier still, before draft PR #1 opened, the three workflows were
+unregistered and `gh workflow disable` returned HTTP 404 for each
+(attempts recorded 2026-10-07). That 404 evidence is historical; the API
+disable above is the current state, not a supersedure of the guard
+commits — both mechanisms are in place.
 
 Scope and limits, stated plainly:
 
-- The guards live on the **mission branch only**. They do not change the
-  fork's `main`, where the three upstream files remain unguarded.
-- Today those three workflows are **unregistered with Actions** on
-  `yusoofsh/pico-fido` (the workflow API lists only `pipico`; observed
-  2026-10-07), so nothing runs from `main`. `gh workflow disable` for each
-  returned HTTP 404 ("not found on the default branch") while they stay
-  unregistered — attempts recorded 2026-10-07. API disable is therefore
-  currently impossible, not "done".
-- If they ever register again (an Actions-tab enable or a default-branch
-  change), the followup is: `gh workflow disable "Emulation and test"`,
-  `gh workflow disable "Nightly deploy"` and `gh workflow disable "CodeQL"`
-  against `yusoofsh/pico-fido`, then record the new states. Scheduled
-  upstream runs would execute against `main` regardless of any guard
-  committed on `pipico/*` branches — **branch edits are never a permanent,
-  fork-wide suppression**.
-- `yusoofsh/pico-keys-sdk` has no `.github/workflows` on `main` at all; only
-  `pipico-sdk-tests.yml` exists, on the `pipico/*` branches (registered,
-  active). Nothing to disable there.
+- The committed guards live on the **mission branch only**. They do not
+  change the fork's `main`, where the upstream files remain unguarded.
+- **Branch edits are never a permanent, fork-wide suppression on their
+  own.** Scheduled upstream runs would execute against `main` regardless
+  of any guard committed on `pipico/*` branches, and a workflow that is
+  still unregistered (`nightly.yml` today) can only be disabled through
+  the API after it registers.
+- `yusoofsh/pico-keys-sdk` has no `.github/workflows` on `main` at all;
+  only `pipico-sdk-tests.yml` exists, on the `pipico/*` branches
+  (registered, active). Nothing to disable there.
 
 ## Identity and string consistency
 
@@ -173,7 +212,13 @@ Scope and limits, stated plainly:
   constants also change size. Both hash sets and the diagnosis are
   recorded in `docs/pipico/release/reproducibility.md`, and **no document
   in `docs/pipico/`, the README or the PR bodies claims a reproducible
-  build**.
+  build**. A second nondeterminism source is recorded there as well: the
+  Pico SDK embeds the compiler build date (`__DATE__`, via
+  `bi_program_build_date_string`), so the observed byte-equality of
+  fixed-path CI runs holds within the observed same UTC build date
+  (2026-10-07) and is a conditional stability observation, not a
+  reproducibility guarantee. The build inputs were not altered to
+  suppress paths or the date metadata.
 - The release evidence bundle is delivered: source tuple re-resolved from
   a fresh clone+configure, resolved flags, SHA-256 of the released and
   fresh-clone UF2/ELF/bin, size/write-range report, budget evidence and
