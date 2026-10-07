@@ -61,6 +61,77 @@ Microcontrollers RP2350 and ESP32-S3 are designed to support secure environments
 
 **However**, the RP2040 microcontroller lacks this level of security hardware, meaning that it cannot provide the same protection. Data stored on its flash memory, including private or master keys, can be easily accessed or dumped, as encryption of the master key itself is not feasible. Consequently, if an RP2040 device is stolen, any stored private or secret keys may be exposed.
 
+## Yusoofs Pipico V1 (this fork)
+
+This fork carries the **Yusoofs Pipico V1** work: a corrected and pinned
+flash-storage baseline (layout ID `yd4m-effective2m-marker-gap-v1`), enforced
+BOOT-button user presence, a small USR-button companion that types fixed
+F13–F16 keys, the `pipico` host CLI (see [`host/README.md`](host/README.md)),
+CI workflows and release evidence. It is built for the VCC-GND YD-RP2040
+board. Full documentation: [`docs/pipico/`](docs/pipico/) — start with
+[`BASELINE.md`](docs/pipico/BASELINE.md),
+[`LAYOUT.md`](docs/pipico/LAYOUT.md),
+[`HARDWARE-TESTS.md`](docs/pipico/HARDWARE-TESTS.md) and
+[`HANDOFF.md`](docs/pipico/HANDOFF.md).
+
+**Status: SOURCE REVIEWED · BUILT · AUTOMATED TESTS PASSED (software
+level). The firmware has NOT been flashed and NOT been hardware-tested
+(FLASHED and HARDWARE TESTED are NOT_RUN); the host CLI has not been
+installed on a Mac (HOST INSTALLED = NOT_RUN); nothing was enrolled
+(ACCOUNT ENROLLED = NOT_RUN).** Never flash this firmware over a device
+holding real credentials: flashing can reformat or repair storage and
+cross-flashing between layouts is forbidden (see
+[`docs/pipico/LAYOUT.md`](docs/pipico/LAYOUT.md)); a layout switch is
+re-enrollment, not a migration.
+
+### Build (one command)
+
+Prerequisites and pins: Arm GNU Toolchain 13.2.Rel1
+(`arm-none-eabi-gcc 13.2.1 20231009`), Pico SDK 2.3.1 (`079c6f39`, TinyUSB
+`86ad6e56`), picotool 2.3.1, CMake + Ninja; the build clones mbedtls 3.6.7
+and tinycbor 0.6.1 at configure time (network needed once). The Pipico
+preset builds for `PICO_BOARD=vcc-gnd_yd-rp2040_4m` with
+`PICO_USE_FASTEST_SUPPORTED_CLOCK=0`, `PICO_FLASH_SIZE_LIMIT_BYTES=0x200000`,
+`FORCE_BUTTON_WAIT=ON`, `ENABLE_OATH_APP=ON`, `ENABLE_OTP_APP=ON`; the USB
+product string is "Yusoofs Pipico".
+
+```sh
+git clone --recurse-submodules -b pipico/integration-v1 https://github.com/yusoofsh/pico-fido
+cd pico-fido
+PICO_SDK_PATH=/path/to/pico-sdk/2.3.1 scripts/pipico/build.sh
+```
+
+`build.sh` honours `PIPICO_BUILD_DIR` (default `build-pipico`), passes extra
+arguments through to CMake, exports `compile_commands.json`, and **exits
+nonzero on any CMake/compiler warning or failed gate**. Gates: image bounds
+(every write below the 2 MiB code limit), clocks (125 MHz system, 48 MHz
+USB) and the companion budget (≤ 8 KiB static RAM, ≤ 64 KiB flash).
+
+### Tests
+
+- **SDK host tests**: in `pico-keys-sdk/`, `cmake -S tests -B build-tests -G
+  Ninja && ninja -C build-tests && ctest --test-dir build-tests
+  --output-on-failure` (configures mbedtls 3.6.7 into `third-party/` first).
+- **Root host tests**: configure an emulation build (`cmake -S . -B
+  build-emu -G Ninja -DENABLE_EMULATION=1 -DFORCE_BUTTON_WAIT=ON && ninja -C
+  build-emu`) and run `ctest --test-dir build-emu --output-on-failure`.
+- **Emulation pytest suite** (needs the emulator on TCP 35962/35963 and
+  pcscd): `scripts/pipico/run-emu-tests.sh` starts both, runs the upstream
+  python-fido2 suite plus `tests/pipico/`, deselecting only the vault test
+  that needs CI secrets, and stops everything.
+- **Host CLI**: in `host/`, `bun test` and `bunx tsc --noEmit`.
+
+`HARDWARE-TESTS.md` is the checklist for the board and Mac checks (G1,
+G5–G13), all of which are NOT_RUN here.
+
+### Companion key bindings
+
+The USR button gestures type fixed keys; bind them on the Mac with Shortcuts
+(`pipico install` prints the steps with absolute paths — created manually,
+never by the CLI): tap → **F13** → `pipico action`, double tap → **F14** →
+`pipico attention`, hold 1.5–3 s → **F15** → `pipico incident`, hold 3–10 s
+→ **F16** → `pipico lock`. A hold of 10 s or more sends nothing.
+
 ## Download
 **If you own an ESP32-S3 board, go to [ESP32 Flasher](https://www.picokeys.com/esp32-flasher/) for flashing your Pico FIDO.**
 
