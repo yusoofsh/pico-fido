@@ -67,6 +67,16 @@ configure_bool_option(
     "OTP Application: \t\t disabled"
 )
 
+# USR-button companion (F13-F16 macros): default ON in the Pipico preset.
+# The OFF build is the budget baseline for scripts/pipico/check-budget.sh.
+option(PIPICO_COMPANION "Enable/disable the USR-button companion" ON)
+configure_bool_option(
+    PIPICO_COMPANION
+    PIPICO_COMPANION
+    "Pipico companion: \t\t enabled"
+    "Pipico companion: \t\t disabled"
+)
+
 if(FORBID_DISABLE_AUV)
     add_compile_definitions(FORBID_DISABLE_AUV=1)
 endif()
@@ -153,6 +163,27 @@ endif()
 set(INCLUDES ${INCLUDES}
     ${CMAKE_CURRENT_LIST_DIR}/src/fido
 )
+
+if(PIPICO_COMPANION)
+    # The companion pure modules are linked into the firmware (ARM and
+    # emulation alike); pipico.c itself carries only the pure core except
+    # in device builds, where its PIPICO_DEVICE_BUILD part (GPIO24 glue,
+    # strong picokey_early_init/picokey_task) is compiled.
+    list(APPEND INCLUDES ${CMAKE_CURRENT_LIST_DIR}/src/pipico)
+    list(APPEND SOURCES
+        ${CMAKE_CURRENT_LIST_DIR}/src/pipico/gesture.c
+        ${CMAKE_CURRENT_LIST_DIR}/src/pipico/kbd_arbiter.c
+        ${CMAKE_CURRENT_LIST_DIR}/src/pipico/pipico.c
+    )
+    if(NOT ENABLE_EMULATION AND NOT ESP_PLATFORM)
+        # The Pico SDK does not export a PICO_PLATFORM preprocessor macro
+        # in this configuration, so the device build is identified the same
+        # way main.c tells the device path apart: neither the emulation
+        # host build nor the ESP port is enabled.
+        set_source_files_properties(${CMAKE_CURRENT_LIST_DIR}/src/pipico/pipico.c
+            PROPERTIES COMPILE_DEFINITIONS "PIPICO_DEVICE_BUILD=1")
+    endif()
+endif()
 
 if(NOT ESP_PLATFORM)
     target_sources(pico_fido PUBLIC ${SOURCES})
