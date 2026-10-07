@@ -163,23 +163,31 @@ existed before M5, so early root pushes name none.
 | 2026-10-07 | M4 host-CLI commits + m5-ci-workflows | root `pipico/integration-v1` `068212b…5833bc23c2c5d70f40bd8733faa52be5380d4cea` (the M4 host-CLI commits plus the CI workflow commits `eb5aa19…5833bc2`; recorded receipts are the workflow runs) | `37678066567` success on `dd6d9a9…`, `37679411045` success on `3d45c53…`, **`37682443999` success on `5833bc2…` (final)** |
 | 2026-10-07 | m5-docs-and-handoff | SDK `pipico/companion-hooks` `3201dbd…654fbda1046c0dba3832ff520f7d1ea25d1df45b` (README-only commit) | `37685874677` success on `654fbda…` |
 | 2026-10-07 | m5-docs-and-handoff | root `pipico/integration-v1` `5833bc2…b31a8ab969536d754a7737c3ffe12bf7c6e3da5f` (gitlink bump + docs series) | `37685884106` success on `b31a8ab…` |
+| 2026-10-07 | m5-release-evidence-and-repro | root `pipico/integration-v1` `b31a8ab…5ba8b086972ebe931c74352e8930b9f19a71dd87` (release-evidence docs commits `6499200` bundle + `5ba8b08` manifest/handoff refresh) | `37687857080` success on `5ba8b08…` |
 
 (The release-evidence docs commits pushed after `b31a8ab…` are named in
 `HANDOFF.md` and `docs/pipico/release/`; they are documentation-only and
-change no build input. Their push receipt row is appended by the final
-publication feature once its run is observed, as every row above was.)
+change no build input. Their push receipt row above was appended by the
+final publication feature once the run was observed, as every row above
+was. A commit cannot contain the run id of its own push, so each
+publication push's receipt row is appended by the following commit; the
+receipt for the branch's final push is recorded in the mission
+publication record.)
 
 Notes:
 
-- The final root CI run `37685884106` (workflow `pipico.yml`, branch
-  `pipico/integration-v1`, head `b31a8ab969536d754a7737c3ffe12bf7c6e3da5f`)
-  concluded success with the release-evidence artifact; its receipts showed
-  root host ctest 67/67, pytest 348 passed / 3 skipped / 1 deselected /
-  0 failed, `bun test` 315 pass / 0 fail, bounds self-test 17/17 and the
-  budget gate OK (RAM +20 B / 8192, flash +1192 B / 65536). The earlier
-  run `37682443999` (head `5833bc2…`) was green with byte-identical
-  firmware artifacts (both artifact sets downloaded and compared). The
-  release bundle built from `b31a8ab…` lives in `docs/pipico/release/`.
+- The final root CI run observed so far is `37687857080` (workflow
+  `pipico.yml`, branch `pipico/integration-v1`, head
+  `5ba8b086972ebe931c74352e8930b9f19a71dd87`): it concluded success with
+  the release-evidence artifact; its receipts showed root host ctest
+  67/67, pytest 348 passed / 3 skipped / 0 failed / 0 errors plus the
+  single deselected vault test (junit receipt: 348 + 3 + 1 testcases),
+  `bun test` 315 pass / 0 fail, bounds self-test 17/17 and the budget
+  gate OK (RAM +20 B / 8192, flash +1192 B / 65536). The earlier
+  runs `37682443999` (head `5833bc2…`) and `37685884106` (head
+  `b31a8ab…`) were green with byte-identical firmware artifacts (both
+  artifact sets downloaded and compared). The release bundle built from
+  `b31a8ab…` lives in `docs/pipico/release/`.
 - The last SDK CI observation is run `37685874677` (success) on
   `pipico/companion-hooks` @ `654fbda…` (a README-only commit on top of
   `3201dbd…`), the exact gitlink of the root head above.
