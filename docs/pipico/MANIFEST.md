@@ -161,37 +161,66 @@ existed before M5, so early root pushes name none.
 | 2026-10-07 | m3-sdk-hooks-and-kb-transmitter | SDK new branch `pipico/companion-hooks` @ `3201dbd0e6972a97510c08d21d1386de130c62e2` (6 commits, stacked on `pipico/storage-baseline` `a1eb8cf…`) | `37615375963` success on `3201dbd…` |
 | 2026-10-07 | m3-sdk-hooks-and-kb-transmitter | root `pipico/integration-v1` `bb61441…068212bcd81946572f77f360bb06acfb7e61d654` | none yet on root |
 | 2026-10-07 | M4 host-CLI commits + m5-ci-workflows | root `pipico/integration-v1` `068212b…5833bc23c2c5d70f40bd8733faa52be5380d4cea` (the M4 host-CLI commits plus the CI workflow commits `eb5aa19…5833bc2`; recorded receipts are the workflow runs) | `37678066567` success on `dd6d9a9…`, `37679411045` success on `3d45c53…`, **`37682443999` success on `5833bc2…` (final)** |
+| 2026-10-07 | m5-docs-and-handoff | SDK `pipico/companion-hooks` `3201dbd…654fbda1046c0dba3832ff520f7d1ea25d1df45b` (README-only commit) | `37685874677` success on `654fbda…` |
+| 2026-10-07 | m5-docs-and-handoff | root `pipico/integration-v1` `5833bc2…b31a8ab969536d754a7737c3ffe12bf7c6e3da5f` (gitlink bump + docs series) | `37685884106` success on `b31a8ab…` |
+
+(The release-evidence docs commits pushed after `b31a8ab…` are named in
+`HANDOFF.md` and `docs/pipico/release/`; they are documentation-only and
+change no build input. Their push receipt row is appended by the final
+publication feature once its run is observed, as every row above was.)
 
 Notes:
 
-- The final root CI run `37682443999` (workflow `pipico.yml`, branch
-  `pipico/integration-v1`, head `5833bc23c2c5d70f40bd8733faa52be5380d4cea`)
-  concluded success with the release-evidence artifact; its log showed
+- The final root CI run `37685884106` (workflow `pipico.yml`, branch
+  `pipico/integration-v1`, head `b31a8ab969536d754a7737c3ffe12bf7c6e3da5f`)
+  concluded success with the release-evidence artifact; its receipts showed
   root host ctest 67/67, pytest 348 passed / 3 skipped / 1 deselected /
   0 failed, `bun test` 315 pass / 0 fail, bounds self-test 17/17 and the
-  budget gate OK (RAM +20 B / 8192, flash +1192 B / 65536). Observed with
-  `gh run list` / `gh run view --log` at this refresh.
-- The last SDK CI observation is run `37615375963` (success) on
-  `pipico/companion-hooks` @ `3201dbd…`, the exact gitlink of the root head
-  above.
+  budget gate OK (RAM +20 B / 8192, flash +1192 B / 65536). The earlier
+  run `37682443999` (head `5833bc2…`) was green with byte-identical
+  firmware artifacts (both artifact sets downloaded and compared). The
+  release bundle built from `b31a8ab…` lives in `docs/pipico/release/`.
+- The last SDK CI observation is run `37685874677` (success) on
+  `pipico/companion-hooks` @ `654fbda…` (a README-only commit on top of
+  `3201dbd…`), the exact gitlink of the root head above.
 - Docs-only commits pushed after a built/cited SHA are named in
   `HANDOFF.md`; they change no build input.
 
 ## PROPOSED (not yet evidenced)
 
-- **Reproducible build**: two clean builds from fresh recursive clones with
-  identical UF2/ELF/bin SHA-256 — planned in M5. No reproducibility claim is
-  made now.
-- **Draft PRs** into each fork's `main` — M5 release feature. The **root CI
-  workflow** (`pipico.yml`) is now OBSERVED: pushed and green on
-  `5833bc2…` (run `37682443999`, see the push receipts above).
-- **Release evidence** with SHA-256 hashes of the UF2/ELF/bin, map file,
-  size and write-range report and test receipts — M5.
+- **Draft PRs** into each fork's `main` — final M5 release feature. The
+  **root CI workflow** (`pipico.yml`) is OBSERVED: pushed and green on
+  `5833bc2…` (run `37682443999`) and on `b31a8ab…` (run `37685884106`,
+  see the push receipts above).
 - **HARDWARE TESTED / HOST INSTALLED / FLASHED / ACCOUNT ENROLLED** — NOT_RUN
   for the whole mission (no board, no Mac).
-- **Emulation python-fido2 gate** — OBSERVED since M2: the receipts above
-  (CI run `37682443999`: 348 passed / 3 skipped / 1 deselected / 0 failed).
 - USB product string "Yusoofs Pipico": the compile definition
   (`USB_PRODUCT_STRING`, root `CMakeLists.txt:99`) is SOURCE REVIEWED and the
   image is BUILT with it; USB enumeration with that string on a real host is
   HARDWARE TESTED = NOT_RUN.
+
+## OBSERVED (M5 release): reproducibility comparison and release evidence
+
+- **Two-clean-build comparison**: done (2026-10-07, feature
+  `m5-release-evidence-and-repro`). Two fresh recursive clones of the
+  pushed branch (same root/SDK SHAs) built with the documented single
+  command in two different directories produced **different** UF2/bin/ELF
+  hashes (11 differing bytes, all embedded absolute build-path
+  characters; the CI runner path additionally changes string lengths).
+  **No reproducible-build claim is made.** Both hash sets and the
+  diagnosed cause: `docs/pipico/release/reproducibility.md`.
+- **Release evidence**: delivered in `docs/pipico/release/`
+  (`RELEASE-MANIFEST.md` — complete source tuple re-resolved from a fresh
+  clone+configure, resolved flags, SHA-256 of the released and
+  fresh-clone UF2/ELF/bin, size and write-range report
+  `image-bounds-report.json`, `clock-report.txt`,
+  `budget-fresh-clone.txt`, `test-receipts.md`) and as the CI artifact
+  `pipico-release-evidence` of run `37685884106`.
+- **Fresh-clone one-command build + gates**: `scripts/pipico/build.sh`
+  exits 0 with zero diagnostics in both fresh clones; clock, image-bounds
+  and budget gates all pass (budget against a fresh OFF baseline built in
+  the same clone: RAM +20 B / flash +1200 B, matching the M3 canonical
+  evidence).
+- **Emulation python-fido2 gate** — OBSERVED since M2 and re-observed on
+  the final tuple from a fresh clone (CI run `37685884106` and the local
+  fresh-clone receipt: 348 passed / 3 skipped / 1 deselected / 0 failed).

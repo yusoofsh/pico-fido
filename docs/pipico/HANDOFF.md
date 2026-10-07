@@ -11,8 +11,8 @@ come from are in `MANIFEST.md`.
 | Status | State | Evidence |
 |---|---|---|
 | SOURCE REVIEWED | achieved | every mission commit reviewed on `pipico/storage-baseline` / `pipico/companion-hooks` (SDK) and `pipico/integration-v1` (root); docs in `docs/pipico/` cite SHAs, not claims |
-| BUILT | achieved | `scripts/pipico/build.sh` exit 0, zero CMake/compiler warnings; root CI run [`37682443999`](https://github.com/yusoofsh/pico-fido/actions/runs/37682443999) (build + gates) green on `5833bc23c2c5d70f40bd8733faa52be5380d4cea` |
-| AUTOMATED TESTS PASSED | achieved | same CI run: SDK ctest 47/47 (run [`37615375963`](https://github.com/yusoofsh/pico-keys-sdk/actions/runs/37615375963) on SDK `3201dbd0e6972a97510c08d21d1386de130c62e2`), root host ctest 67/67, emulation pytest 348 passed / 3 skipped / 1 deselected / 0 failed, `bun test` 315 pass / 0 fail, image-bounds self-test 17/17, budget gate OK (RAM delta 20 B ≤ 8192, flash delta 1192 B ≤ 65536) |
+| BUILT | achieved | `scripts/pipico/build.sh` exit 0, zero CMake/compiler warnings; root CI run [`37685884106`](https://github.com/yusoofsh/pico-fido/actions/runs/37685884106) (build + gates) green on `b31a8ab969536d754a7737c3ffe12bf7c6e3da5f`; also green on `5833bc2…` (run `37682443999`) and reproduced in two fresh-clone builds (`docs/pipico/release/`) |
+| AUTOMATED TESTS PASSED | achieved | same CI run `37685884106`: SDK ctest 47/47 (run [`37685874677`](https://github.com/yusoofsh/pico-keys-sdk/actions/runs/37685874677) on SDK `654fbda1046c0dba3832ff520f7d1ea25d1df45b`), root host ctest 67/67, emulation pytest 348 passed / 3 skipped / 1 deselected / 0 failed, `bun test` 315 pass / 0 fail, image-bounds self-test 17/17, budget gate OK (RAM delta 20 B ≤ 8192, flash delta 1192 B ≤ 65536); full commands and counts: `docs/pipico/release/test-receipts.md` |
 | HARDWARE TESTED | **NOT_RUN** | no YD-RP2040 board attached; the board-side checklist lives in `HARDWARE-TESTS.md` (G1, G5–G10) |
 | HOST INSTALLED | **NOT_RUN** | no Mac attached; the Mac-side checklist lives in `HARDWARE-TESTS.md` (G11, G12); the CLI was exercised only on Linux with the fake platform and a temp `$HOME` |
 | FLASHED | **NOT_RUN** | no device writes in this mission; no board was ever flashed |
@@ -21,7 +21,11 @@ come from are in `MANIFEST.md`.
 ## Gate statuses (G0–G13, same vocabulary)
 
 The gate definitions are in `HARDWARE-TESTS.md` ("Gate map"). Software levels
-are evidenced; hardware/Mac levels are NOT_RUN.
+are evidenced; hardware/Mac levels are NOT_RUN. The receipts cited below come
+from CI run `37682443999` (source `5833bc2…`); the later run `37685884106`
+(source `b31a8ab…`, the release-evidence built SHA) concluded success with
+the same counts (its artifact receipts were downloaded and checked), so the
+software levels stand on the final tuple too.
 
 | Gate | Software level | Evidence | Hardware/Mac level |
 |---|---|---|---|
@@ -42,18 +46,19 @@ are evidenced; hardware/Mac levels are NOT_RUN.
 
 ## Final SHAs, PRs and publication state
 
-- **Root built SHA** (all build inputs): `5833bc23c2c5d70f40bd8733faa52be5380d4cea`
-  — the head CI run `37682443999` was green on, equal to
-  `origin/pipico/integration-v1` at the time of writing. The commits after it
-  on the branch are a **documentation-only series** (this file,
-  `HARDWARE-TESTS.md`, README additions, the host README doc pass, and one
-  gitlink bump to an SDK docs-only README commit); they change no build
-  input except that gitlink, which points to the SDK tip with only a new
-  README. `git log 5833bc2..HEAD` enumerates them exactly.
-- **SDK SHA**: `3201dbd0e6972a97510c08d21d1386de130c62e2` (head of
-  `pipico/companion-hooks`, CI run `37615375963` green on it); the root
-  gitlink points there. A docs-only README commit may sit on top of it
-  locally before the final publication push (see `MANIFEST.md`).
+- **Root built SHA** (all build inputs, the SHA the release evidence was
+  built from): `b31a8ab969536d754a7737c3ffe12bf7c6e3da5f` — CI run
+  `37685884106` was green on it and it was the remote branch head after
+  the docs-and-handoff push. The commits after it on the branch are the
+  **release-evidence docs-only series** (`docs/pipico/release/`, the
+  `MANIFEST.md`/`HANDOFF.md` refresh): `git log b31a8ab..HEAD` enumerates
+  them exactly, and each touches only `docs/` — no build input changes
+  (observed directly: the CI artifacts of runs `37682443999`/`37685884106`,
+  whose sources straddle 7 docs-only commits, are byte-identical).
+- **SDK SHA**: `654fbda1046c0dba3832ff520f7d1ea25d1df45b` (head of
+  `pipico/companion-hooks`, CI run `37685874677` green on it; a README-only
+  commit on top of `3201dbd0e6972a97510c08d21d1386de130c62e2`); the root
+  gitlink points there, and the fresh-clone builds resolved exactly it.
 - **PR URLs**: not yet created. The two draft PRs
   (`pipico/integration-v1` → `main` in pico-fido, `pipico/companion-hooks` →
   `main` in pico-keys-sdk) are opened by the final release feature, which
@@ -130,11 +135,18 @@ Scope and limits, stated plainly:
   above to the PR URLs; no other empty query remains).
 - The 2 MiB effective limit is a build-time cap, **not** evidence of the
   board's physical flash size; the flash is nowhere described as defective.
-- **Reproducibility**: not yet claimed. The two-clean-build comparison and
-  its hashes are the release-evidence feature's deliverable; no document in
-  `docs/pipico/` claims a reproducible build before that comparison exists.
-- The release evidence bundle (source tuple, resolved flags, artifact
-  SHA-256s, size/write-range report, test receipts) is produced by the
-  release-evidence feature into `docs/pipico/release/` and the CI artifact;
-  until it lands, the receipts cited in this file (CI runs and their counts)
-  are the evidence of record.
+- **Reproducibility**: the two-clean-build comparison was performed
+  (2026-10-07, two fresh recursive clones, documented single command) and
+  the hashes **differ**: 11 bytes, all characters of the absolute build
+  path embedded in error-diagnostic strings (`__FILE__`-style source
+  paths); the CI runner path has a different length, so its string
+  constants also change size. Both hash sets and the diagnosis are
+  recorded in `docs/pipico/release/reproducibility.md`, and **no document
+  in `docs/pipico/`, the README or the PR bodies claims a reproducible
+  build**.
+- The release evidence bundle is delivered: source tuple re-resolved from
+  a fresh clone+configure, resolved flags, SHA-256 of the released and
+  fresh-clone UF2/ELF/bin, size/write-range report, budget evidence and
+  test receipts in `docs/pipico/release/` (`RELEASE-MANIFEST.md` et al.),
+  and as the CI artifact `pipico-release-evidence` of run `37685884106`
+  (root `b31a8ab…`).
