@@ -114,6 +114,10 @@ jobs:
       - name: Run the emulation python-fido2 suite (single vault deselect)
         run: |
           python3 -m pip install -q fido2==2.2.1 pytest==9.1.1 pyscard==2.3.1 pyelftools==0.33 inputimeout==1.0.4 cryptography==50.0.2
+          # the upstream vault test module imports the enroller helper at
+          # collection time; pytest collects it even though the vault test
+          # itself is deselected (it needs CI secrets to run)
+          python3 -m pip install -q "pico-vault-enroller @ git+https://github.com/polhenarejos/pico-vault-enroller.git@79b1f1552d8f3824b7b7c81d19c37e7466fcbcc2"
           # the upstream TCP emulation transport (tests/docker/fido2) overwrites
           # the installed fido2/hid modules, exactly like the local venv setup
           hid_dir=$(python3 -c 'import fido2, os; print(os.path.join(os.path.dirname(fido2.__file__), "hid"))')
