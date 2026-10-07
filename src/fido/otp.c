@@ -25,17 +25,20 @@
 #include "random.h"
 #include "version.h"
 #include "hid/ctap_hid.h"
+#include "hid/kb_tx.h"
 #include "usb.h"
 #if defined(PICO_PLATFORM)
 #include "bsp/board.h"
 #endif
 #ifdef ENABLE_EMULATION
-void add_keyboard_buffer(const_byte_array_t data, bool press_enter) {
+bool add_keyboard_buffer(const_byte_array_t data, bool press_enter) {
     (void)data;
     (void)press_enter;
+    return true;
 }
-void append_keyboard_buffer(const_byte_array_t data) {
+bool append_keyboard_buffer(const_byte_array_t data) {
     (void)data;
+    return true;
 }
 #else
 #include "tusb.h"
@@ -455,6 +458,12 @@ static int otp_button_pressed(uint8_t slot) {
     }
 #ifdef ENABLE_OATH_APP
     if (otp_config->tkt_flags & OATH_HOTP) {
+        /* Own the keyboard transmitter for the whole typing sequence (the
+         * add and the trailing APPEND_CR append are one transaction; the
+         * claim spans the flash_commit between them). If another owner
+         * (the companion) holds the transmitter, every add/append below is
+         * refused by it instead of corrupting in-flight text. */
+        kb_tx_claim(KB_TX_OWNER_OTP);
         uint8_t tmp_key[KEY_SIZE + 2];
         tmp_key[0] = 0x01;
         memcpy(tmp_key + 2, otp_config->aes_key, KEY_SIZE);
@@ -496,6 +505,7 @@ static int otp_button_pressed(uint8_t slot) {
         if (otp_config->tkt_flags & APPEND_CR) {
             append_keyboard_buffer(CONST_BYTE_ARRAY((const uint8_t *)"\r", 1));
         }
+        kb_tx_release(KB_TX_OWNER_OTP);
     }
 #endif
     else if (otp_config->cfg_flags & SHORT_TICKET || otp_config->cfg_flags & STATIC_TICKET) {
@@ -503,10 +513,12 @@ static int otp_button_pressed(uint8_t slot) {
         if (otp_config->cfg_flags & SHORT_TICKET) { // Not clear which is the purpose of SHORT_TICKET
             //fixed_size /= 2;
         }
+        kb_tx_claim(KB_TX_OWNER_OTP);
         add_keyboard_buffer(CONST_BYTE_ARRAY(otp_config->fixed_data, fixed_size), false);
         if (otp_config->tkt_flags & APPEND_CR) {
             append_keyboard_buffer(CONST_BYTE_ARRAY((const uint8_t *)"\x28", 1));
         }
+        kb_tx_release(KB_TX_OWNER_OTP);
     }
     else {
         uint8_t otpk[22], *po = otpk;
@@ -560,10 +572,12 @@ static int otp_button_pressed(uint8_t slot) {
             flash_commit();
         }
         session_counter[slot - 1] = next_session_counter;
+        kb_tx_claim(KB_TX_OWNER_OTP);
         add_keyboard_buffer(CONST_BYTE_ARRAY((const uint8_t *)otp_out, sizeof(otp_out)), true);
         if (otp_config->tkt_flags & APPEND_CR) {
             append_keyboard_buffer(CONST_BYTE_ARRAY((const uint8_t *)"\r", 1));
         }
+        kb_tx_release(KB_TX_OWNER_OTP);
     }
 
     mbedtls_platform_zeroize(data, sizeof(data));
