@@ -16,14 +16,26 @@
 #     manually-specified cmake variables;
 #   - records the resolved toolchain and dependency tuple in
 #     <build dir>/pipico-build-tuple.txt;
-#   - runs the post-build gates (check-clock.py and check-image-bounds.py)
-#     and exits nonzero if any gate fails.
+#   - runs the post-build gates (check-clock.py, check-image-bounds.py and,
+#     for companion builds, check-budget.sh) and exits nonzero if any gate
+#     fails.
 
 set -uo pipefail
 
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 root=$(dirname -- "$(dirname -- "$script_dir")")
 build_dir=${PIPICO_BUILD_DIR:-$root/build-pipico}
+
+# The budget gate compares against the PIPICO_COMPANION=OFF baseline and
+# only makes sense for a companion build; building the baseline (passed as
+# an extra -DPIPICO_COMPANION=OFF) skips it.
+companion=ON
+for arg in "$@"; do
+  case "$arg" in
+  -DPIPICO_COMPANION=OFF | PIPICO_COMPANION=OFF) companion=OFF ;;
+  -DPIPICO_COMPANION=ON | PIPICO_COMPANION=ON) companion=ON ;;
+  esac
+done
 
 fail() { echo "pipico-build: FAIL: $*" >&2; exit 1; }
 
@@ -47,6 +59,7 @@ cmake -S "$root" -B "$build_dir" -G Ninja \
   -DFORCE_BUTTON_WAIT=ON \
   -DENABLE_OATH_APP=ON \
   -DENABLE_OTP_APP=ON \
+  -DPIPICO_COMPANION=ON \
   -Dpicotool_DIR="$PICOTOOL_DIR" \
   -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
   "$@" 2>&1 | tee "$configure_log"
@@ -102,6 +115,7 @@ tuple_file="$build_dir/pipico-build-tuple.txt"
   echo "FORCE_BUTTON_WAIT=ON"
   echo "ENABLE_OATH_APP=ON"
   echo "ENABLE_OTP_APP=ON"
+  echo "PIPICO_COMPANION=$companion"
   echo "ENABLE_EDDSA: not enabled (off by default)"
 } | tee "$tuple_file"
 
@@ -114,6 +128,14 @@ bounds_gate="$script_dir/check-image-bounds.py"
 [ -x "$bounds_gate" ] || fail "missing bounds gate $bounds_gate"
 echo "pipico-build: running image bounds gate"
 python3 "$bounds_gate" "$build_dir" || gates_failed=1
+if [ "$companion" = ON ]; then
+  budget_gate="$script_dir/check-budget.sh"
+  [ -x "$budget_gate" ] || fail "missing budget gate $budget_gate"
+  echo "pipico-build: running companion budget gate"
+  PIPICO_BUILD_DIR="$build_dir" bash "$budget_gate" || gates_failed=1
+else
+  echo "pipico-build: PIPICO_COMPANION=OFF (budget baseline): budget gate skipped"
+fi
 [ $gates_failed -eq 0 ] || { echo "pipico-build: gate(s) failed"; exit 1; }
 
 echo "pipico-build: OK"
