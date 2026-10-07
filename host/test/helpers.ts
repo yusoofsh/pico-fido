@@ -3,8 +3,8 @@
  * Config paths in fixtures intentionally point at macOS-style absolute paths
  * (/Users/...): structural validation must not require the paths to exist.
  */
+import { createHash } from 'node:crypto';
 import {
-  createHash,
   mkdirSync,
   mkdtempSync,
   readFileSync,

@@ -31,10 +31,14 @@ function newHome(): string {
 
 /** Env for snapshot tests: the fake log lives in a separate temp dir so the
  * snapshot of home shows exactly what the CLI itself created. */
-function fakeEnvExternalLog(home: string, extra?: Record<string, string | undefined>) {
+function fakeEnvExternalLog(home: string, extra?: Record<string, string | undefined>): {
+  env: Record<string, string | undefined>;
+  logPath: string;
+} {
   const logDir = makeTempHome();
   tempHomes.push(logDir);
-  return fakeEnv(home, { PIPICO_FAKE_LOG: join(logDir, 'fake.log'), ...extra });
+  const logPath = join(logDir, 'fake.log');
+  return { env: fakeEnv(home, { PIPICO_FAKE_LOG: logPath, ...extra }), logPath };
 }
 
 const ALL_COMMANDS = ['doctor', 'action', 'attention', 'incident', 'study', 'lock', 'install', 'uninstall'];
@@ -166,10 +170,11 @@ describe('config rejection through handlers (fake platform, zero platform calls)
       const home = newHome();
       writeDefaultConfig(home, (c) => { c.workspaces.devops.paths = [p]; });
       const before = snapshotDir(home);
-      const r = await runCli(['action'], fakeEnv(home));
+      const { env, logPath } = fakeEnvExternalLog(home);
+      const r = await runCli(['action'], env);
       expect(r.code).toBe(3);
       expect(snapshotDir(home)).toBe(before);
-      expect(readLogLines(join(home, 'fake-platform.log'))).toEqual([]);
+      expect(readLogLines(logPath)).toEqual([]);
     }
   });
 
@@ -258,7 +263,8 @@ describe('malformed and missing config through the CLI', () => {
     for (const command of ['action', 'attention', 'incident', 'study', 'lock', 'doctor']) {
       const home = newHome();
       const before = snapshotDir(home);
-      const r = await runCli([command], fakeEnvExternalLog(home, { PIPICO_CONFIG: join(home, missing) }));
+      const { env } = fakeEnvExternalLog(home, { PIPICO_CONFIG: join(home, missing) });
+      const r = await runCli([command], env);
       expect(r.code).toBe(3);
       expect(r.stderr).toContain('config file not found');
       const lines = r.stderr.split('\n').filter((l) => l.trim() !== '');
@@ -329,7 +335,8 @@ describe('handlers validate config before running on the fake platform', () => {
       const home = newHome();
       writeDefaultConfig(home);
       const before = snapshotDir(home);
-      const r = await runCli([command], fakeEnvExternalLog(home));
+      const { env } = fakeEnvExternalLog(home);
+      const r = await runCli([command], env);
       expect(r.code).toBe(1);
       expect(r.stderr).toContain('not implemented');
       expect(snapshotDir(home)).toBe(before);

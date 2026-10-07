@@ -37,6 +37,19 @@ function tempDir(prefix: string): string {
   return mkdtempSync(join(tmpdir(), `pipico-e2e-${prefix}-`));
 }
 
+/**
+ * Snapshot of HOME that ignores `.bun`: bun's own runtime converts bun.lock
+ * into `$HOME/.bun/install/cache/*.pile` on the first run of any project
+ * script, which is bun behavior, not pipico's. pipico itself creates nothing
+ * (asserted by the in-process runCli snapshot tests).
+ */
+function snapshotHome(home: string): string {
+  return snapshotDir(home)
+    .split('\n')
+    .filter((line) => line === '' || !line.split(' ')[1]!.startsWith('.bun'))
+    .join('\n');
+}
+
 function writeDefaultConfig(home: string, attentionUrl: string): string {
   const dir = join(home, '.config', 'pipico');
   mkdirSync(dir, { recursive: true });
@@ -72,11 +85,11 @@ describe('subprocess CLI', () => {
 
   it('an unknown command exits nonzero with "unknown command" on stderr and leaves HOME unchanged', async () => {
     const home = tempDir('home');
-    const before = snapshotDir(home);
+    const before = snapshotHome(home);
     const r = await spawnCli(['frobnicate'], { HOME: home });
     expect(r.code).not.toBe(0);
     expect(r.stderr).toContain('unknown command: frobnicate');
-    expect(snapshotDir(home)).toBe(before);
+    expect(snapshotHome(home)).toBe(before);
   });
 
   it('attention opens exactly the configured URL through the fake platform', async () => {
@@ -94,16 +107,16 @@ describe('subprocess CLI', () => {
   it('attention on the real platform exits 4 with "unsupported platform" and leaves HOME unchanged', async () => {
     const home = tempDir('home');
     writeDefaultConfig(home, 'https://attention.example/today');
-    const before = snapshotDir(home);
+    const before = snapshotHome(home);
     const r = await spawnCli(['attention'], { HOME: home });
     expect(r.code).toBe(4);
     expect(r.stderr).toContain('unsupported platform');
-    expect(snapshotDir(home)).toBe(before);
+    expect(snapshotHome(home)).toBe(before);
   });
 
   it('a missing config fails with one clean line and never creates a config', async () => {
     const home = tempDir('home');
-    const before = snapshotDir(home);
+    const before = snapshotHome(home);
     const r = await spawnCli(['attention'], {
       HOME: home,
       PIPICO_PLATFORM: 'fake',
@@ -113,7 +126,7 @@ describe('subprocess CLI', () => {
     expect(r.stderr.split('\n').filter((l) => l.trim() !== '')).toHaveLength(1);
     expect(r.stderr).toContain('config file not found');
     expect(r.stderr).not.toMatch(/\bat\s+\S+:\d+/);
-    expect(snapshotDir(home)).toBe(before);
+    expect(snapshotHome(home)).toBe(before);
     expect(existsSync(join(home, '.config', 'pipico', 'config.json'))).toBe(false);
   });
 

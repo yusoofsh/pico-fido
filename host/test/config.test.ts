@@ -122,7 +122,20 @@ describe('validateConfig', () => {
     }
   });
 
-  const badWorkspaceIds = ['bad id', 'a/b', '', '__proto__', 'a'.repeat(65), ' LeadingSpace'];
+  it('rejects the workspace id "__proto__"', () => {
+    const cfg = JSON.parse(JSON.stringify(VALID_CONFIG));
+    // Assignment via cfg.workspaces['__proto__'] would hit the setter; JSON
+    // parsing (the real path) produces an own enumerable property instead.
+    Object.defineProperty(cfg.workspaces, '__proto__', {
+      value: cfg.workspaces.devops,
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
+    expectSingleError(cfg, /workspace id/);
+  });
+
+  const badWorkspaceIds = ['bad id', 'a/b', '', 'a'.repeat(65), ' LeadingSpace'];
   for (const id of badWorkspaceIds) {
     it(`rejects the workspace id ${JSON.stringify(id.length > 20 ? `${id.slice(0, 10)}...` : id)}`, () => {
       const cfg = JSON.parse(JSON.stringify(VALID_CONFIG));
