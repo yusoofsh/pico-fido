@@ -24,18 +24,21 @@ Requires Bun 1.4.x. Tests: `bun test` (or `bun run test`). Typecheck:
 
 | Command | Purpose |
 |---|---|
-| `doctor` | Read-only checks: config, bun, platform, executable path (USB presence is planned; see below) |
+| `doctor` | Read-only checks: config, bun, platform, installed executable, bindings guidance, optional USB presence of "Yusoofs Pipico" (informational) |
 | `action` (F13) | Pick a workspace explicitly and open it — never guesses the terminal cwd |
 | `attention` (F14) | Open exactly the configured attention URL |
 | `incident` (F15) | Scaffold a timestamped local notes folder and open monitoring pages only |
 | `study` | Open the configured study URLs; never submits or answers anything |
 | `lock` (F16) | The native macOS lock action; never reverses a lock, never changes auth settings |
-| `install` | Per-user install of the config skeleton and wrappers (planned) |
-| `uninstall` | Remove only what `pipico install` created (planned) |
+| `install` | Per-user install: config skeleton, executable wrapper, manifest — writes only under `$HOME` |
+| `uninstall` | Remove only what `pipico install` created (only manifest resources) |
 
-Exit codes: `0` ok (including an explicit chooser cancel) · `1` error ·
-`2` usage error (includes unknown commands) · `3` invalid/missing/malformed
-config · `4` unsupported platform.
+Exit codes: `0` ok (including an explicit chooser cancel, and uninstall with
+nothing installed) · `1` error · `2` usage error (includes unknown commands)
+· `3` invalid/missing/malformed config · `4` unsupported platform ·
+`5` doctor: the installed executable is missing or unusable (run
+`pipico install`). `doctor` exits with the first failing check in that
+order (3, then 4, then 5).
 
 `--dry-run` is honored by every action handler: it prints the planned
 changes on stdout and performs zero platform calls and zero writes.
@@ -79,6 +82,103 @@ the fixed argv is `/usr/bin/open /System/Library/CoreServices/ScreenSaverEngine.
 (starting the screen saver locks the workstation under the user's own
 existing settings). pipico never reverses a lock and never changes any
 authentication or power setting.
+
+## doctor
+
+`doctor` is strictly read-only: it never writes anything under `$HOME` (it
+does not even construct the fake platform, whose constructor truncates the
+log), never spawns a subprocess on Linux, and never needs root. It reports
+every check instead of stopping at the first problem:
+
+- `config:` loaded through the strict loader (exit 3 on problems; errors go
+  to stderr with the key path).
+- `bun:` the Bun version this CLI runs on.
+- `platform:` `ok` for the fake platform or for macOS; `FAIL` with
+  "unsupported platform" on every other host (exit 4), and `FAIL` for an
+  unknown `PIPICO_PLATFORM` value.
+- `executable:` the per-user wrapper (below) — `ok` when it exists, is a
+  regular file and is executable; otherwise `FAIL` (exit 5) naming the path
+  and pointing at `pipico install`.
+- `bindings:` one line per key mapping F13→`action`, F14→`attention`,
+  F15→`incident`, F16→`lock`, each with the absolute wrapper path.
+- `usb:` OPTIONAL presence of the USB device named `Yusoofs Pipico`.
+  Strictly informational — a not-found or skipped result never changes the
+  exit code. On Linux it reads the sysfs device list (no root, no
+  subprocess); on macOS it runs one fixed `system_profiler SPUSBDataType`
+  argv (NOT_RUN in this mission — no Mac); anywhere else it reports
+  `skipped`.
+
+## Install and uninstall
+
+`pipico install` is per-user only. It writes exclusively under `$HOME`
+(no sudo, no cron, no launchd — there is no privileged helper and no
+scheduler anywhere in the source), never overwrites an existing file, and
+records everything it creates in a manifest. `--dry-run` prints the exact
+planned changes (absolute paths) and changes nothing; it works on every
+host, because install performs no machine actions.
+
+Resources created for `$HOME=/Users/u` (the config base honors
+`$XDG_CONFIG_HOME` when set, and refuses to install when that points
+outside `$HOME`):
+
+| Resource | Mode | Purpose |
+|---|---|---|
+| `$HOME/.config` | 0755 | created only if absent |
+| `$HOME/.config/pipico` | 0755 | created only if absent |
+| `$HOME/.config/pipico/config.json` | 0644 | config skeleton (below) |
+| `$HOME/.local` | 0755 | created only if absent |
+| `$HOME/.local/bin` | 0755 | created only if absent |
+| `$HOME/.local/bin/pipico` | 0755 | the wrapper: `#!/usr/bin/env sh` + one `exec '<bun>' '<cli.ts>' "$@"` line pinning the bun binary and the cli.ts it was installed from |
+| `$HOME/.config/pipico/installed.json` | 0644 | the manifest (written last) |
+
+Policies, all verified by tests:
+
+- **Never overwrites.** An existing config.json, wrapper or any other
+  planned target is kept byte-identical, is NOT listed in the manifest, and
+  install says it kept it. Install exits 0 either way.
+- **Idempotent.** A second run changes nothing (same files, byte-identical
+  manifest — it is written only when absent).
+- **Manifest.** `installed.json` lists every created file and directory —
+  and only those:
+
+  ```json
+  {
+    "pipicoManifest": 1,
+    "createdAt": "2026-10-07T14:31:19.643Z",
+    "resources": [
+      { "path": "/Users/u/.config", "type": "dir" },
+      { "path": "/Users/u/.config/pipico", "type": "dir" },
+      { "path": "/Users/u/.config/pipico/config.json", "type": "file",
+        "sha256": "<64 hex chars>", "mode": "0644" },
+      { "path": "/Users/u/.local", "type": "dir" },
+      { "path": "/Users/u/.local/bin", "type": "dir" },
+      { "path": "/Users/u/.local/bin/pipico", "type": "file",
+        "sha256": "<64 hex chars>", "mode": "0755" }
+    ]
+  }
+  ```
+
+  The manifest is strict like the config: unknown keys anywhere are
+  refused. File entries record the SHA-256 of the content at creation time.
+  Deleting the manifest leaves installed files in place; uninstall then has
+  nothing to remove.
+
+`pipico uninstall` removes exactly the manifest resources and nothing else:
+
+- `--dry-run` prints exactly the manifest entries as planned removals and
+  changes nothing (exit 0).
+- Without a manifest: nothing is removed and it says so (exit 0).
+- Files are unlinked; directories are removed only when empty (`rmdir`), so
+  a directory containing user files is never removed.
+- Every entry is validated BEFORE anything is removed. A refused entry
+  aborts the whole uninstall (nothing is removed, exit 1, every refusal
+  reported). Entries are refused when they are: not absolute or not
+  normalized (`..`, `.`, `//`), outside `$HOME` (including `$HOME/../…`),
+  HOME itself, a symbolic link (never followed, never removed), of the
+  wrong on-disk type, malformed (unknown keys, missing hash on a file
+  entry), or a file whose content no longer matches the recorded hash
+  (modified after install, or never created by pipico). If you edited a
+  pipico-created file and want it gone, delete it yourself.
 
 ## Agent launch
 
@@ -244,36 +344,41 @@ The macOS operations (`open -a`, `open <url>`, the osascript chooser, the
 lock action, agent launch) are implemented in `src/platform/mac.ts` behind
 the platform interface, with the argv shapes covered by tests through an
 injected spawner. **No Mac is attached in this mission: every real macOS
-execution is NOT_RUN.** On Linux the real platform refuses every action
-with exit 4 and spawns nothing by design.
+execution is NOT_RUN** — including `doctor`'s macOS USB check
+(`system_profiler`) and every real Shortcuts binding. On Linux the real
+platform refuses every action with exit 4 and spawns nothing by design;
+install/uninstall/doctor are host-independent and fully exercised here with
+a temp `$HOME` and the fake platform.
 
 ## Binding F13–F16 in macOS Shortcuts
 
 Shortcuts cannot be authored headlessly, so `pipico install` prints these
-steps (with absolute executable paths) instead of doing it:
+steps (with the absolute wrapper path it created, e.g.
+`/Users/u/.local/bin/pipico`) instead of writing any binding:
 
 1. Open the **Shortcuts** app on the Mac.
 2. Create a new shortcut, add the action **Run Shell Script**, set the shell
    to `/bin/zsh` (or `/bin/sh`) and make sure "Run script" passes **no**
    input.
-3. As the script body, use one line per key:
-   - F13 → `/usr/bin/env bun /absolute/path/to/pico-fido/host/src/cli.ts action`
-   - F14 → `... /absolute/path/to/pico-fido/host/src/cli.ts attention`
-   - F15 → `... /absolute/path/to/pico-fido/host/src/cli.ts incident`
-   - F16 → `... /absolute/path/to/pico-fido/host/src/cli.ts lock`
+3. As the script body, use one line per key (all with the same absolute
+   wrapper path):
+   - F13 (single tap on the Pipico button) → `/Users/u/.local/bin/pipico action`
+   - F14 (double tap) → `/Users/u/.local/bin/pipico attention`
+   - F15 (hold for 1.5-3 s) → `/Users/u/.local/bin/pipico incident`
+   - F16 (hold for 3-10 s) → `/Users/u/.local/bin/pipico lock`
 4. Open the shortcut's detail panel → **Add Keyboard Shortcut** → press the
    corresponding F13–F16 key. (On laptops enable "Use F1, F2, etc. keys as
    standard function keys" or hold `fn`.)
-5. Repeat for each of the four keys. Test with `pipico doctor` and the fake
-   platform first; see `docs/pipico/HARDWARE-TESTS.md` for the board-side
-   checklist.
+5. Repeat for each of the four keys. Test with `pipico doctor` first; see
+   `docs/pipico/HARDWARE-TESTS.md` for the board-side checklist.
 
-`pipico install` (planned) will create the per-user wrapper scripts and print
-the exact absolute paths to paste into Shortcuts. It writes only under
-`$HOME`, records everything it creates in
+The bindings are created manually, not by the CLI: `pipico install` creates
+the per-user wrapper (above), prints these steps with absolute paths, and
+never authors Shortcuts itself. It writes only under `$HOME`, records
+everything it creates in
 `$XDG_CONFIG_HOME|$HOME/.config/pipico/installed.json`, never overwrites
-existing files, and `uninstall` removes only what is listed in that manifest.
-No sudo, no cron, no launchd.
+existing files, and `uninstall` removes only what is listed in that
+manifest. No sudo, no cron, no launchd.
 
 ## Dependencies
 
