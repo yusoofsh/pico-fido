@@ -149,7 +149,7 @@ jobs:
           cd host
           bun install --frozen-lockfile
           set -o pipefail
-          bun test | tee "$RUNNER_TEMP/bun-test.log"
+          bun test 2>&1 | tee "$RUNNER_TEMP/bun-test.log"
           bunx tsc --noEmit
 
       - name: Collect the release artifacts and manifest
