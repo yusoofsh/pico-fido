@@ -24,9 +24,11 @@
  */
 import { AGENT_ALLOWLIST, APP_ALLOWLIST, echoSafe } from '../config.ts';
 import { agentArgv } from '../agents.ts';
-import { firstLine, run, type RunOptions, type RunResult } from '../exec.ts';
+import { firstLine, run, type RunOptions, type RunResult, type SpawnFn } from '../exec.ts';
 import { checkPath, checkUrl } from '../validate.ts';
 import { UnsupportedPlatformError, type Platform } from './index.ts';
+
+export type { SpawnFn };
 
 export const OPEN_BIN = '/usr/bin/open';
 export const OSASCRIPT_BIN = '/usr/bin/osascript';
@@ -57,8 +59,6 @@ export const CHOOSER_SCRIPT = `on run argv
   if picked is false then return "${CHOOSER_CANCEL_SENTINEL}"
   return item 1 of picked
 end run`;
-
-export type SpawnFn = (argv: readonly string[], opts: RunOptions) => Promise<RunResult>;
 
 /** Control characters never travel into an osascript dialog. */
 const CONTROL_FREE = /^[^\u0000-\u001f\u007f]*$/;

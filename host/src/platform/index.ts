@@ -55,4 +55,37 @@ export function getPlatform(env: Record<string, string | undefined>): Platform {
   );
 }
 
+export interface PlatformSelection {
+  readonly kind: 'real' | 'fake' | 'unknown';
+  readonly supported: boolean;
+  readonly name: string;
+  /** Human message when unsupported (real host is not macOS, unknown value). */
+  readonly problem?: string;
+}
+
+/**
+ * Which platform WOULD be selected, without constructing it. doctor uses
+ * this to stay read-only: constructing FakePlatform would truncate
+ * PIPICO_FAKE_LOG, which is a write; doctor must never write.
+ */
+export function describePlatformSelection(env: Record<string, string | undefined>): PlatformSelection {
+  const value = env.PIPICO_PLATFORM;
+  if (value === 'fake') return { kind: 'fake', supported: true, name: 'fake' };
+  if (value === undefined || value === '') {
+    if (process.platform === 'darwin') return { kind: 'real', supported: true, name: 'mac' };
+    return {
+      kind: 'real',
+      supported: false,
+      name: 'mac',
+      problem: `unsupported platform: ${process.platform} (pipico performs actions only on macOS; set PIPICO_PLATFORM=fake for testing)`,
+    };
+  }
+  return {
+    kind: 'unknown',
+    supported: false,
+    name: value,
+    problem: `unknown PIPICO_PLATFORM value ${JSON.stringify(value)} (supported: unset for the real platform, or "fake")`,
+  };
+}
+
 export { FakePlatform, RealPlatform };

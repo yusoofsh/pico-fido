@@ -32,6 +32,9 @@ export interface RunResult {
   stderr: string;
 }
 
+/** The shape every spawn site goes through (injected in tests). */
+export type SpawnFn = (argv: readonly string[], opts: RunOptions) => Promise<RunResult>;
+
 /** A spawn that never started, or a child killed at the timeout. */
 export class SpawnError extends Error {
   readonly reason: 'usage' | 'spawn' | 'timeout';

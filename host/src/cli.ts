@@ -2,23 +2,26 @@
  * pipico — host companion CLI for the Yusoofs Pipico FIDO key.
  *
  * Exit codes: 0 ok · 1 error · 2 usage · 3 invalid config · 4 unsupported
- * platform. The command surface and the config schema are documented in
- * host/README.md. All machine actions go through the Platform interface
- * (src/platform/); on non-macOS hosts every action handler exits 4 with
- * "unsupported platform" without doing anything.
+ * platform · 5 doctor: executable not installed. The command surface and the
+ * config schema are documented in host/README.md. All machine actions go
+ * through the Platform interface (src/platform/); on non-macOS hosts every
+ * action handler exits 4 with "unsupported platform" without doing anything.
  */
 import { ConfigError, echoSafe, loadConfig } from './config.ts';
 import { UsageError } from './errors.ts';
-import { getPlatform, UnsupportedPlatformError } from './platform/index.ts';
-import type { CliIo, HandlerCtx } from './handlers/context.ts';
+import { describePlatformSelection, getPlatform, UnsupportedPlatformError } from './platform/index.ts';
+import type { CliIo, Env, HandlerCtx } from './handlers/context.ts';
 import { runAttention } from './handlers/attention.ts';
 import { runDoctor } from './handlers/doctor.ts';
 import type { DoctorConfigOutcome } from './handlers/doctor.ts';
-import { runInstall } from './handlers/install.ts';
+import { runInstallCommand } from './install.ts';
+import { runUninstallCommand } from './uninstall.ts';
 import { runAction } from './handlers/action.ts';
 import { runIncident } from './handlers/incident.ts';
 import { runStudy } from './handlers/study.ts';
 import { runLock } from './handlers/lock.ts';
+
+export type { Env };
 
 const GATED: Record<string, (ctx: HandlerCtx) => Promise<number>> = {
   action: runAction,
@@ -33,13 +36,13 @@ export const USAGE = `pipico - host companion CLI for the Yusoofs Pipico FIDO ke
 Usage: pipico <command> [options]
 
 Commands:
-  doctor      Read-only checks: config, bun, platform, executable path
+  doctor      Read-only checks: config, bun, platform, executable, USB (informational)
   action      Pick a workspace explicitly and open it (F13)
   attention   Open the configured attention URL (F14)
   incident    Scaffold a local incident folder and open monitoring pages (F15)
   study       Open the configured study URLs
   lock        Lock the workstation (F16, macOS only)
-  install     Per-user install of the pipico config skeleton and wrappers
+  install     Per-user install: config skeleton, wrapper, manifest (only under $HOME)
   uninstall   Remove only what "pipico install" created
 
 Options:
@@ -57,8 +60,6 @@ export interface CliResult {
   stdout: string;
   stderr: string;
 }
-
-export type Env = Record<string, string | undefined>;
 
 interface ParsedArgs {
   command: string | undefined;
@@ -142,8 +143,11 @@ export async function runCli(argv: string[], env: Env): Promise<CliResult> {
   try {
     if (command === 'doctor') {
       // Read-only diagnostics: report every check instead of stopping at the
-      // first problem. A broken config is exit 3, an unsupported platform 4.
-      const platform = getPlatform(env);
+      // first problem. A broken config is exit 3, an unsupported platform 4,
+      // a missing installed executable 5. The platform SELECTION is
+      // described without constructing it, so doctor never writes (not even
+      // the fake log).
+      const selection = describePlatformSelection(env);
       let outcome: DoctorConfigOutcome;
       try {
         outcome = { ok: true, loaded: loadConfig(parsed.configFlag, env) };
@@ -151,12 +155,17 @@ export async function runCli(argv: string[], env: Env): Promise<CliResult> {
         if (!(e instanceof ConfigError)) throw e;
         outcome = { ok: false, errors: e.errors };
       }
-      const code = await runDoctor(outcome, platform, io);
+      const code = await runDoctor(outcome, selection, env, io);
       return { code, stdout: out.join(''), stderr: err.join('') };
     }
 
     if (command === 'install' || command === 'uninstall') {
-      const code = await runInstall(command, parsed.dryRun, io);
+      // Per-user file management only: no platform object, no machine
+      // actions, writes only under $HOME (nothing at all with --dry-run).
+      const code =
+        command === 'install'
+          ? await runInstallCommand(parsed.dryRun, env, io)
+          : await runUninstallCommand(parsed.dryRun, env, io);
       return { code, stdout: out.join(''), stderr: err.join('') };
     }
 
