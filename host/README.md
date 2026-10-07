@@ -160,7 +160,7 @@ host, because install performs no machine actions.
 
 Resources created for `$HOME=/Users/u` (the config base honors
 `$XDG_CONFIG_HOME` when set, and refuses to install when that points
-outside `$HOME`):
+outside `$HOME`, is not normalized, or contains a `..`/`.` segment):
 
 | Resource | Mode | Purpose |
 |---|---|---|
@@ -172,6 +172,16 @@ outside `$HOME`):
 | `$HOME/.local/bin/pipico` | 0755 | the wrapper: `#!/usr/bin/env sh` + one `exec '<bun>' '<cli.ts>' "$@"` line pinning the bun binary and the cli.ts it was installed from |
 | `$HOME/.config/pipico/installed.json` | 0644 | the manifest (written last) |
 
+**Nested XDG layouts.** When `$XDG_CONFIG_HOME` points at a nested
+directory under `$HOME` (for example `$HOME/a/b/config`), every missing
+directory between `$HOME` and the base is planned as its own resource —
+never a recursive `mkdir`: `--dry-run` lists each missing ancestor
+shallowest-first (each before its children), a pre-existing ancestor is
+reported as kept instead of newly created, and the manifest records every
+directory this invocation actually created. A symbolic link at any planned
+directory is refused before anything is created (pipico never writes
+through a link).
+
 Policies, all verified by tests:
 
 - **Never overwrites.** An existing config.json, wrapper or any other
@@ -179,6 +189,18 @@ Policies, all verified by tests:
   install says it kept it. Install exits 0 either way.
 - **Idempotent.** A second run changes nothing (same files, byte-identical
   manifest — it is written only when absent).
+- **Ordinary-failure rollback.** If an ordinary caught error strikes
+  mid-install (for example `$HOME/.local/bin` exists as a regular file, so
+  creating the wrapper fails with ENOTDIR, or the manifest cannot be
+  created because `<base>/pipico` is read-only), install exits nonzero with
+  a contained error (no stack trace) and reverse-cleans ONLY the resources
+  this invocation successfully created: created files are unlinked (the
+  creation is recorded before the later chmod, so a chmod failure still
+  cleans up), then created directories are removed deepest-first, each only
+  when empty (a plain `rmdir`). Pre-existing files and directories — and
+  any directory holding something pipico did not create — are kept, never
+  deleted. There is no recovery from SIGKILL or power loss and no journal;
+  rerunning `install` after such a failure is safe.
 - **Manifest.** `installed.json` lists every created file and directory —
   and only those:
 
@@ -211,6 +233,10 @@ Policies, all verified by tests:
 - Without a manifest: nothing is removed and it says so (exit 0).
 - Files are unlinked; directories are removed only when empty (`rmdir`), so
   a directory containing user files is never removed.
+- Created ancestor directories of a nested XDG base are manifest entries
+  like any other: they are removed deepest-first when they end up empty,
+  and kept when they are pre-existing or hold user files (as are the
+  ancestors still needed to contain them).
 - Every entry is validated BEFORE anything is removed. A refused entry
   aborts the whole uninstall (nothing is removed, exit 1, every refusal
   reported). Entries are refused when they are: not absolute or not
