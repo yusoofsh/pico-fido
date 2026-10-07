@@ -5,8 +5,8 @@
  * VAL-HOST-025: the lock action is one fixed argv.
  */
 import { describe, expect, it } from 'bun:test';
-import { CHOOSER_SCRIPT, CHOOSER_TIMEOUT_MS, MacPlatform } from '../src/platform/mac.ts';
-import type { RunOptions, RunResult } from '../src/exec.ts';
+import { CHOOSER_SCRIPT, CHOOSER_TIMEOUT_MS, LOCK_SCRIPT, LOCK_TIMEOUT_MS, MacPlatform, OSASCRIPT_BIN } from '../src/platform/mac.ts';
+import { SpawnError, type RunOptions, type RunResult } from '../src/exec.ts';
 import { UnsupportedPlatformError } from '../src/platform/index.ts';
 
 interface RecordedCall {
@@ -143,17 +143,7 @@ describe('MacPlatform fixed argv for open and lock', () => {
     expect(calls).toHaveLength(0);
   });
 
-  it('lock runs one fixed argv and nothing else', async () => {
-    const { calls, spawn } = recordingSpawner([]);
-    const p = new MacPlatform(spawn, () => true);
-    await p.lock();
-    expect(calls).toHaveLength(1);
-    expect(calls[0]!.argv).toEqual(['/usr/bin/open', '/System/Library/CoreServices/ScreenSaverEngine.app']);
-    expect(calls[0]!.opts.timeoutMs).toBeGreaterThan(0);
-  });
-
-  it('launchAgent runs the fixed allowlisted argv with the configured cwd', async () => {
-    const { calls, spawn } = recordingSpawner([]);
+  it('launchAgent runs the fixed allowlisted argv with the configured cwd', async () => {    const { calls, spawn } = recordingSpawner([]);
     const p = new MacPlatform(spawn, () => true);
     await p.launchAgent('claude', '/Users/yusoof/work/infra');
     expect(calls).toHaveLength(1);
@@ -180,6 +170,105 @@ describe('MacPlatform fixed argv for open and lock', () => {
       message = (e as Error).message;
     }
     expect(message).toContain('open');
+    expect(message.split('\n')).toHaveLength(1);
+  });
+});
+
+describe('MacPlatform.lock: the fixed native session lock (VAL-HOST-025)', () => {
+  it('runs exactly [osascript, -e, LOCK_SCRIPT] once, with a bounded timeout', async () => {
+    const { calls, spawn } = recordingSpawner([]);
+    const p = new MacPlatform(spawn, () => true);
+    await p.lock();
+    expect(calls).toHaveLength(1);
+    const { argv, opts } = calls[0]!;
+    expect(argv).toEqual([OSASCRIPT_BIN, '-e', LOCK_SCRIPT]);
+    expect(opts.timeoutMs).toBe(LOCK_TIMEOUT_MS);
+    expect(Number.isFinite(opts.timeoutMs)).toBe(true);
+    expect(opts.timeoutMs).toBeGreaterThan(0);
+  });
+
+  it('the script is a static constant: Control-Command-Q via System Events, no screensaver, no data', () => {
+    // Apple's documented "Lock Screen" shortcut, dispatched through System Events.
+    expect(LOCK_SCRIPT).toContain('System Events');
+    expect(LOCK_SCRIPT).toContain('keystroke "q"');
+    expect(LOCK_SCRIPT).toContain('{command down, control down}');
+    // Static text: no template holes, no data, no `open`, no screensaver fallback.
+    expect(LOCK_SCRIPT).not.toContain('${');
+    expect(LOCK_SCRIPT.toLowerCase()).not.toContain('screensaver');
+    expect(LOCK_SCRIPT).not.toContain('/usr/bin/open');
+  });
+
+  it('propagates a timeout as an error and never falls back to a second spawn', async () => {
+    let calls = 0;
+    const p = new MacPlatform(async () => {
+      calls++;
+      throw new SpawnError('timeout: /usr/bin/osascript was killed after 60000 ms', 'timeout');
+    }, () => true);
+    let message = '';
+    try {
+      await p.lock();
+    } catch (e) {
+      message = (e as Error).message;
+    }
+    expect(message).toContain('lock');
+    expect(message).toContain('timeout');
+    expect(calls).toBe(1); // no fallback, no retry
+  });
+
+  it('maps an Accessibility denial to one clear actionable permission error, without a fallback', async () => {
+    let calls = 0;
+    const p = new MacPlatform(async () => {
+      calls++;
+      return {
+        code: 1,
+        stdout: '',
+        stderr: 'execution error: System Events got an error: osascript is not allowed assistive access. (-1719)',
+      };
+    }, () => true);
+    let message = '';
+    try {
+      await p.lock();
+    } catch (e) {
+      message = (e as Error).message;
+    }
+    expect(message).toContain('permission');
+    expect(message).toContain('Accessibility');
+    expect(message).toContain('System Events');
+    expect(message.split('\n')).toHaveLength(1);
+    expect(calls).toBe(1); // no screensaver fallback, no retry
+  });
+
+  it('maps an Automation denial (user authorization failed) to the same clear permission error', async () => {
+    const p = new MacPlatform(async () => ({
+      code: 1,
+      stdout: '',
+      stderr: 'execution error: System Events got an error: User authorization failed. (-1743)',
+    }), () => true);
+    let message = '';
+    try {
+      await p.lock();
+    } catch (e) {
+      message = (e as Error).message;
+    }
+    expect(message).toContain('permission');
+    expect(message).toContain('Automation');
+    expect(message).not.toContain('failed (exit'); // not the generic failure line
+  });
+
+  it('surfaces a plain osascript failure with the exit code and detail, on one line', async () => {
+    const p = new MacPlatform(async () => ({
+      code: 2,
+      stdout: '',
+      stderr: 'execution error: System Events got an error: bogus-internal-condition.',
+    }), () => true);
+    let message = '';
+    try {
+      await p.lock();
+    } catch (e) {
+      message = (e as Error).message;
+    }
+    expect(message).toContain('exit 2');
+    expect(message).toContain('bogus-internal-condition');
     expect(message.split('\n')).toHaveLength(1);
   });
 });

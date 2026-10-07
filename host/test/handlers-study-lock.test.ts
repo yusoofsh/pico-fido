@@ -66,6 +66,16 @@ describe('lock: only the lock action (VAL-HOST-025)', () => {
     expect(r.code).toBe(0);
     expect(readLogLines(logPath(home))).toEqual([]);
   });
+
+  it('exits 1 with a short line when the lock platform call is forced to fail', async () => {
+    const home = makeTempHome();
+    writeDefaultConfig(home);
+    const r = await runCli(['lock'], fakeEnv(home, { PIPICO_FAKE_FAIL: 'lock' }));
+    expect(r.code).toBe(1);
+    expect(r.stderr).toContain('lock');
+    expect(r.stderr.split('\n').filter((l) => l.trim() !== '')).toHaveLength(1);
+    expect(readLogLines(logPath(home))).toEqual([]);
+  });
 });
 
 describe('open handlers: failures contained via PIPICO_FAKE_FAIL (VAL-HOST-030)', () => {
