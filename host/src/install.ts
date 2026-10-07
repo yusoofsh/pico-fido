@@ -19,14 +19,19 @@
  * pipico did not create. If an ordinary caught error strikes mid-install,
  * the resources this invocation successfully created are reverse-cleaned
  * (files unlinked, then directories rmdir'd deepest-first, only when empty)
- * and pre-existing resources are left untouched. The manifest itself is
- * written only when absent. --dry-run prints the exact plan and writes
- * nothing.
+ * and pre-existing resources are left untouched. A file counts as created
+ * the moment its exclusive open succeeds — before any byte is written —
+ * so a caught partial write is cleaned too, and a retry installs the full
+ * file instead of keeping a truncated one. The manifest itself is written
+ * only when absent: a manifest this invocation opened is removed on
+ * failure (before the directories, so they are empty); a manifest whose
+ * create never succeeded (EEXIST — a foreign one) is never read, compared
+ * or unlinked. --dry-run prints the exact plan and writes nothing.
  *
  * install and uninstall never touch the Platform interface: they perform no
  * machine actions, only per-user file management.
  */
-import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, rmdirSync, unlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, closeSync, existsSync, lstatSync, mkdirSync, openSync, rmdirSync, unlinkSync, writeSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Env } from './handlers/context.ts';
 import type { CliIo } from './handlers/context.ts';
@@ -45,7 +50,8 @@ export type { Env };
 /**
  * The filesystem operations install performs, in one injectable object: the
  * real CLI uses the node:fs implementations below; tests inject failures
- * (a chmod error after a successful write) to exercise the rollback.
+ * (a chmod error after a successful write, a mid-write failure after the
+ * exclusive create) to exercise the rollback.
  * Every operation is flat: mkdir and rmdir are never recursive, so each
  * created directory is planned and recorded individually.
  */
@@ -53,13 +59,22 @@ export interface InstallFsOps {
   exists(path: string): boolean;
   isSymlink(path: string): boolean;
   mkdir(path: string): void;
-  /** Exclusive create: fails when the path already exists (never truncates). */
-  writeFileNew(path: string, content: string): void;
+  /**
+   * Exclusive create: fails when the path already exists (never truncates).
+   * `onOpen` is the ownership point: it runs immediately after the exclusive
+   * open succeeds, before any byte is written — the command records the file
+   * as invocation-created there, so even a caught partial write (or a
+   * failing chmod) is reverse-cleaned, and a retry writes the full file
+   * instead of keeping a truncated one. onOpen never runs when the open
+   * itself fails (e.g. EEXIST: a file that appeared concurrently is
+   * foreign and not this invocation's to clean). The handle is closed on
+   * every path.
+   */
+  writeFileNew(path: string, content: string, onOpen?: () => void): void;
   chmod(path: string, mode: number): void;
   unlink(path: string): void;
   /** Only removes an empty directory (plain rmdir). */
   rmdir(path: string): void;
-  readIfExists(path: string): string | undefined;
 }
 
 export const realInstallFs: InstallFsOps = {
@@ -72,17 +87,18 @@ export const realInstallFs: InstallFsOps = {
     }
   },
   mkdir: (p) => mkdirSync(p),
-  writeFileNew: (p, c) => writeFileSync(p, c, { flag: 'wx' }),
+  writeFileNew: (p, c, onOpen) => {
+    const fd = openSync(p, 'wx'); // exclusive create: fails EEXIST, never truncates
+    try {
+      onOpen?.(); // ownership point: the file now exists, still empty
+      writeSync(fd, c);
+    } finally {
+      closeSync(fd);
+    }
+  },
   chmod: (p, m) => chmodSync(p, m),
   unlink: (p) => unlinkSync(p),
   rmdir: (p) => rmdirSync(p),
-  readIfExists: (p) => {
-    try {
-      return readFileSync(p, 'utf8');
-    } catch {
-      return undefined;
-    }
-  },
 };
 
 export interface InstallRuntime {
@@ -311,10 +327,11 @@ export async function runInstallCommand(
   }
 
   const created: ManifestResource[] = [];
-  // Whether this invocation attempted the manifest write, and the content it
-  // intended — used to remove a partially written manifest on failure (a
-  // pre-existing manifest is never touched: the exists branch keeps it).
-  let manifestAttempted = false;
+  // Whether this invocation exclusively opened the manifest. Only an owned
+  // manifest — one whose create succeeded, even if the write then failed
+  // midway — is ever unlinked during rollback; a manifest that appears
+  // without this invocation's create succeeding (EEXIST) is foreign.
+  let manifestOwned = false;
 
   try {
     for (const entry of planInstall(home, base.base, runtime)) {
@@ -330,14 +347,18 @@ export async function runInstallCommand(
         ops.mkdir(entry.path); // plain mkdir: every ancestor is its own planned entry
         created.push({ path: entry.path, type: 'dir' });
       } else {
-        ops.writeFileNew(entry.path, entry.content);
-        // Record the creation BEFORE the chmod: if the chmod fails, the file
-        // exists on disk and must be reverse-cleaned with the rest.
-        created.push({
-          path: entry.path,
-          type: 'file',
-          sha256: hashContent(entry.content),
-          mode: entry.mode.toString(8).padStart(4, '0'),
+        // Ownership is recorded in the exclusive-open callback: the moment
+        // the create succeeds the file is this invocation's to clean up —
+        // before any byte is written, so a caught partial write (or a
+        // failing chmod) is reverse-cleaned and a retry writes the full
+        // file instead of keeping a truncated one.
+        ops.writeFileNew(entry.path, entry.content, () => {
+          created.push({
+            path: entry.path,
+            type: 'file',
+            sha256: hashContent(entry.content),
+            mode: entry.mode.toString(8).padStart(4, '0'),
+          });
         });
         ops.chmod(entry.path, entry.mode);
       }
@@ -349,31 +370,32 @@ export async function runInstallCommand(
     } else if (dryRun) {
       io.out(`install: would create file ${manifestPath} (${MANIFEST_FILENAME}, listing the created resources)`);
     } else {
-      const content = serializeManifest(created);
-      manifestAttempted = true;
-      ops.writeFileNew(manifestPath, content);
+      const content = serializeManifest(created); // serialized once: the same bytes are written
+      ops.writeFileNew(manifestPath, content, () => {
+        manifestOwned = true; // the exclusive open succeeded: the manifest is ours to clean
+      });
       io.out(`install: created file ${manifestPath} (${created.length} resources listed)`);
     }
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     io.err(`error: install: ${echoSafe(message)}`);
     io.err('error: install: rolling back the resources this invocation created (pre-existing files and directories are left untouched)');
-    reverseClean(created, io, ops);
-    // A write that fails midway (e.g. disk full) can leave a partial file;
-    // remove it only when it is byte-wise a prefix of what this invocation
-    // intended to write, so a manifest created by someone else survives.
-    if (manifestAttempted) {
-      const intended = serializeManifest(created);
-      const partial = ops.readIfExists(manifestPath);
-      if (partial !== undefined && intended.startsWith(partial)) {
-        try {
-          ops.unlink(manifestPath);
-          io.out(`install: rollback: removed partial manifest ${manifestPath}`);
-        } catch {
-          /* best effort */
-        }
+    // The manifest this invocation exclusively opened is ours even when the
+    // write failed midway. Remove it BEFORE the directories: it usually
+    // lives in a directory created just before it, which only becomes empty
+    // without it. A manifest whose exclusive open failed (EEXIST — someone
+    // else created it between the check and the open) is foreign: it is
+    // never read, compared or unlinked; content resemblance is not
+    // ownership.
+    if (manifestOwned) {
+      try {
+        ops.unlink(manifestPath);
+        io.out(`install: rollback: removed partial manifest ${manifestPath}`);
+      } catch {
+        /* best effort */
       }
     }
+    reverseClean(created, io, ops);
     return 1;
   }
 

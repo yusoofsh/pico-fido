@@ -5,7 +5,7 @@
  * idempotent. Binding instructions name F13-F16 with absolute executables.
  */
 import { createHash } from 'node:crypto';
-import { chmodSync, mkdirSync, existsSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, closeSync, mkdirSync, existsSync, openSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync, writeSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'bun:test';
@@ -18,6 +18,7 @@ import {
   reverseClean,
   runInstallCommand,
   shQuote,
+  wrapperScript,
   type InstallFsOps,
   type InstallRuntime,
 } from '../src/install.ts';
@@ -346,6 +347,32 @@ describe('nested XDG config base (VAL-HOST-033, 035)', () => {
   });
 });
 
+/**
+ * Ops whose writeFileNew faithfully mirrors the real seam (exclusive open,
+ * ownership callback, write, close) but fails the target's write midway:
+ * the exclusive create succeeds and the ownership callback fires (so the
+ * command must record ownership there), then a partial write and a caught
+ * error leave a truncated file behind on disk.
+ */
+function partialWriteOps(target: string): InstallFsOps {
+  return {
+    ...realInstallFs,
+    writeFileNew: (p, c, onOpen) => {
+      if (p === target) {
+        const fd = openSync(p, 'wx'); // the exclusive create succeeds
+        try {
+          onOpen?.(); // the ownership point, as the real implementation
+          writeSync(fd, c.slice(0, 8)); // a partial write, then the failure
+          throw new Error('injected: no space left on device (mid-write)');
+        } finally {
+          closeSync(fd); // the handle is closed on every path
+        }
+      }
+      realInstallFs.writeFileNew(p, c, onOpen);
+    },
+  };
+}
+
 describe('install failure rollback (VAL-HOST-036)', () => {
   it('ENOTDIR: a regular file at .local/bin fails the wrapper write; created resources are reverse-cleaned and the file is untouched', async () => {
     const home = newHome();
@@ -472,6 +499,140 @@ describe('install failure rollback (VAL-HOST-036)', () => {
     expect(existsSync(createdFile)).toBe(false); // created file removed
     expect(existsSync(abc)).toBe(false); // empty created dir removed deepest-first
     expect(existsSync(preExistingEmpty)).toBe(true); // never created by the invocation → never touched
+  });
+
+  it('a caught partial write after the exclusive create is tracked: the partial config is reverse-cleaned', async () => {
+    const home = newHome();
+    const config = join(home, '.config/pipico/config.json');
+    const before = snapshotDir(home);
+    const { io, out } = ioCapture();
+    const code = await runInstallCommand(false, freshEnv(home), io, RUNTIME, partialWriteOps(config));
+    expect(code).toBe(1);
+    expect(existsSync(config)).toBe(false); // the truncated file must not survive the failure
+    expect(existsSync(join(home, '.config'))).toBe(false); // no untracked empty ancestor
+    expect(snapshotDir(home)).toBe(before);
+    expect(out.join('\n')).toContain('rollback');
+  });
+
+  it('a caught partial write after the exclusive create is tracked: the partial wrapper is reverse-cleaned', async () => {
+    const home = newHome();
+    const wrapper = join(home, '.local/bin/pipico');
+    const before = snapshotDir(home);
+    const { io } = ioCapture();
+    const code = await runInstallCommand(false, freshEnv(home), io, RUNTIME, partialWriteOps(wrapper));
+    expect(code).toBe(1);
+    expect(existsSync(wrapper)).toBe(false); // no truncated non-executable wrapper survives
+    expect(existsSync(join(home, '.config/pipico/config.json'))).toBe(false);
+    expect(existsSync(manifestPathFor(join(home, '.config')))).toBe(false);
+    expect(snapshotDir(home)).toBe(before);
+  });
+
+  it('an owned partial manifest is removed before the created directories, so none of them survive', async () => {
+    const home = newHome();
+    const manifestPath = manifestPathFor(join(home, '.config'));
+    const before = snapshotDir(home);
+    const { io, out } = ioCapture();
+    const code = await runInstallCommand(false, freshEnv(home), io, RUNTIME, partialWriteOps(manifestPath));
+    expect(code).toBe(1);
+    expect(existsSync(manifestPath)).toBe(false); // the manifest this run opened is ours to remove
+    expect(existsSync(join(home, '.config/pipico'))).toBe(false); // empty without the manifest → removed
+    expect(existsSync(join(home, '.local/bin/pipico'))).toBe(false);
+    expect(snapshotDir(home)).toBe(before);
+    // Ordering: the manifest was unlinked before the created directories were rmdir'd.
+    const outText = out.join('\n');
+    expect(outText.indexOf('removed partial manifest')).toBeGreaterThanOrEqual(0);
+    expect(outText.indexOf('removed partial manifest')).toBeLessThan(outText.indexOf('removed empty directory'));
+  });
+
+  it('a clean retry after a partial-write failure creates the full, executable, manifested wrapper', async () => {
+    const home = newHome();
+    const wrapper = join(home, '.local/bin/pipico');
+    const failed = ioCapture();
+    expect(await runInstallCommand(false, freshEnv(home), failed.io, RUNTIME, partialWriteOps(wrapper))).toBe(1);
+    expect(existsSync(wrapper)).toBe(false); // the truncated leftover is gone, so nothing blocks the retry
+
+    const retry = ioCapture();
+    const code = await runInstallCommand(false, freshEnv(home), retry.io, RUNTIME);
+    expect(code).toBe(0);
+    expect(readFileSync(wrapper, 'utf8')).toBe(wrapperScript(RUNTIME)); // full content, not the leftover
+    expect(statSync(wrapper).mode & 0o777).toBe(0o755); // executable
+    const listed: string[] = JSON.parse(readFileSync(manifestPathFor(join(home, '.config')), 'utf8')).resources.map(
+      (e: { path: string }) => e.path,
+    );
+    expect(new Set(listed)).toEqual(
+      new Set([
+        join(home, '.config'),
+        join(home, '.config/pipico'),
+        join(home, '.config/pipico/config.json'),
+        join(home, '.local'),
+        join(home, '.local/bin'),
+        join(home, '.local/bin/pipico'),
+      ]),
+    );
+  });
+
+  it('a foreign manifest appearing before the exclusive open (EEXIST) is never read, compared or unlinked', async () => {
+    const home = newHome();
+    const manifestPath = manifestPathFor(join(home, '.config'));
+    const ops: InstallFsOps = {
+      ...realInstallFs,
+      writeFileNew: (p, c, onOpen) => {
+        if (p === manifestPath) {
+          // A concurrent writer wins the create race between the exists()
+          // check and the exclusive open: the file appears (here EMPTY —
+          // resemblance to any content is maximal) and the open fails with
+          // EEXIST, so no ownership callback can fire.
+          writeFileSync(p, '');
+          const e = new Error(`EEXIST: file already exists, open '${p}'`) as Error & { code?: string };
+          e.code = 'EEXIST';
+          throw e;
+        }
+        realInstallFs.writeFileNew(p, c, onOpen);
+      },
+    };
+    const { io, out } = ioCapture();
+    const code = await runInstallCommand(false, freshEnv(home), io, RUNTIME, ops);
+    expect(code).toBe(1);
+    // The foreign manifest survives byte-identical (still empty).
+    expect(existsSync(manifestPath)).toBe(true);
+    expect(readFileSync(manifestPath, 'utf8')).toBe('');
+    // ...while the resources this invocation created are still reverse-cleaned.
+    expect(existsSync(join(home, '.config/pipico/config.json'))).toBe(false);
+    expect(existsSync(join(home, '.local/bin/pipico'))).toBe(false);
+    expect(out.join('\n')).not.toContain('removed partial manifest');
+  });
+});
+
+describe('realInstallFs.writeFileNew ownership seam (VAL-HOST-036)', () => {
+  it('fires the ownership callback after the exclusive create and before any byte is written', () => {
+    const home = newHome();
+    const p = join(home, 'seam-created');
+    let during = 'MISSING';
+    realInstallFs.writeFileNew(p, 'FULL', () => {
+      during = readFileSync(p, 'utf8');
+    });
+    expect(during).toBe(''); // created (still empty) at the ownership point
+    expect(readFileSync(p, 'utf8')).toBe('FULL');
+  });
+
+  it('never fires the ownership callback and never truncates when the exclusive create fails with EEXIST', () => {
+    const home = newHome();
+    const p = join(home, 'seam-eexist');
+    writeFileSync(p, 'FIRST');
+    let opened = false;
+    expect(() => realInstallFs.writeFileNew(p, 'SECOND', () => { opened = true; })).toThrow();
+    expect(opened).toBe(false); // no ownership: nothing was created here
+    expect(readFileSync(p, 'utf8')).toBe('FIRST'); // the existing file is untouched
+  });
+
+  it('closes the handle even when the ownership callback throws', () => {
+    const home = newHome();
+    const fdsBefore = readdirSync('/proc/self/fd').length;
+    for (let i = 0; i < 25; i++) {
+      const p = join(home, `seam-handle-${i}`);
+      expect(() => realInstallFs.writeFileNew(p, 'DATA', () => { throw new Error('boom'); })).toThrow('boom');
+    }
+    expect(readdirSync('/proc/self/fd').length).toBe(fdsBefore); // no leaked handle
   });
 });
 

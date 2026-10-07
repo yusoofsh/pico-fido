@@ -194,13 +194,18 @@ Policies, all verified by tests:
   creating the wrapper fails with ENOTDIR, or the manifest cannot be
   created because `<base>/pipico` is read-only), install exits nonzero with
   a contained error (no stack trace) and reverse-cleans ONLY the resources
-  this invocation successfully created: created files are unlinked (the
-  creation is recorded before the later chmod, so a chmod failure still
-  cleans up), then created directories are removed deepest-first, each only
-  when empty (a plain `rmdir`). Pre-existing files and directories — and
-  any directory holding something pipico did not create — are kept, never
-  deleted. There is no recovery from SIGKILL or power loss and no journal;
-  rerunning `install` after such a failure is safe.
+  this invocation successfully created: a file counts as created the moment
+  its exclusive create succeeds — before any byte is written — so a caught
+  partial write (or a later chmod failure) is cleaned up too, and a retry
+  installs the full file instead of keeping a truncated one; then created
+  directories are removed deepest-first, each only when empty (a plain
+  `rmdir`), after an owned partial manifest is removed first. A manifest
+  whose create never succeeded (EEXIST — a file that appeared concurrently)
+  is foreign: it is never read, compared or unlinked. Pre-existing files
+  and directories — and any directory holding something pipico did not
+  create — are kept, never deleted. There is no recovery from SIGKILL or
+  power loss and no journal; rerunning `install` after such a failure is
+  safe.
 - **Manifest.** `installed.json` lists every created file and directory —
   and only those:
 
