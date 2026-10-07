@@ -29,15 +29,69 @@ Requires Bun 1.4.x. Tests: `bun test` (or `bun run test`). Typecheck:
 | `attention` (F14) | Open exactly the configured attention URL |
 | `incident` (F15) | Scaffold a timestamped local notes folder and open monitoring pages only |
 | `study` | Open the configured study URLs; never submits or answers anything |
-| `lock` (F16) | The native macOS lock action; never unlocks, never changes auth settings |
+| `lock` (F16) | The native macOS lock action; never reverses a lock, never changes auth settings |
 | `install` | Per-user install of the config skeleton and wrappers (planned) |
 | `uninstall` | Remove only what `pipico install` created (planned) |
 
-Exit codes: `0` ok · `1` error · `2` usage error (includes unknown commands) ·
-`3` invalid/missing/malformed config · `4` unsupported platform.
+Exit codes: `0` ok (including an explicit chooser cancel) · `1` error ·
+`2` usage error (includes unknown commands) · `3` invalid/missing/malformed
+config · `4` unsupported platform.
+
+`--dry-run` is honored by every action handler: it prints the planned
+changes on stdout and performs zero platform calls and zero writes.
 
 Unknown commands print `unknown command: <name>` on stderr with the usage and
 exit 2 without changing anything.
+
+## Handler behavior
+
+**action (F13).** Shows one explicit chooser offering every configured
+workspace id exactly once — never auto-picks, even with a single workspace,
+and never looks at the terminal cwd or git state. For each workspace that
+configures an allowlisted agent, one additional option `<id>:<agent>` is
+offered (e.g. `devops:claude`). Canceling (`PIPICO_FAKE_CHOICE=cancel` or
+Esc on macOS) exits 0 and opens nothing. Picking `<id>` runs exactly the
+workspace's configured opens (each path as an app-open with that path, then
+each URL); a workspace with no paths and no URLs opens the configured app
+itself. Picking `<id>:<agent>` does the same opens and then launches the
+agent (see "Agent launch" below); a workspace with no paths refuses the
+agent choice up front with no opens.
+
+**incident (F15).** Creates `<notesRoot>/<YYYYMMDD>-<HHMMSS>` (local time,
+pattern `^[0-9]{8}-[0-9]{6}$`) containing `notes.md` rendered from the
+in-source template, an empty `evidence/` directory and `handoff.md`, then
+opens exactly one URL per configured `incident.monitoringUrls` entry, in
+order, and records nothing else. The scaffold is never overwritten: an
+existing folder of the expected name is a clean refusal (exit 1, zero
+platform calls), and all files are written exclusive-create. If a later
+monitoring open fails, the exit is nonzero with one short error line and
+the already-created folder stays in place. Everything is local only: no
+remote access, no restarting/tearing down services, no cleanup, no capture
+of history, environment or typed/pasted input.
+
+**study.** Opens exactly the configured `study.urls`, in order. With no
+configured URLs it exits 0 with an informational line and zero calls. It
+never fills in forms, never submits, never answers and never marks
+attendance, and the CLI itself makes no network requests.
+
+**lock (F16).** One platform call of kind `lock` and nothing else. On macOS
+the fixed argv is `/usr/bin/open /System/Library/CoreServices/ScreenSaverEngine.app`
+(starting the screen saver locks the workstation under the user's own
+existing settings). pipico never reverses a lock and never changes any
+authentication or power setting.
+
+## Agent launch
+
+Agents are launched only on an explicit chooser pick of the `<id>:<agent>`
+option, and only for agent names on the allowlist (`claude`, `codex`,
+`aider`). The argv is fixed per name in `src/agents.ts` — currently
+`/usr/bin/env <name>` with the workspace's first configured path as the
+working directory — and config can never supply a path, argument or flag.
+The recorded launch argv therefore never contains an auto-approve flag
+(`--yes`, `-y`, `--auto`, `--auto-approve`,
+`--dangerously-skip-permissions`, `--skip-permissions-unsafe`,
+`--full-auto`) or any other flag. pipico waits for the agent to exit; the
+runner's hard stop is 6 hours (finite by design).
 
 ## Platform layer and the fake platform
 
@@ -54,10 +108,18 @@ performs nothing and records what it would have done:
 |---|---|
 | `PIPICO_PLATFORM=fake` | Select `FakePlatform` (the only way to select it) |
 | `PIPICO_FAKE_LOG=<file>` | Append every platform call there as one JSON line; the file is created (truncated) at startup, so a run with zero calls leaves an empty file |
-| `PIPICO_FAKE_CHOICE=<id\|cancel>` | Answer the chooser with a workspace id or cancel; without it `choose` fails instead of picking silently |
-| `PIPICO_FAKE_FAIL=<op>` | Make the operation `openApp`, `openUrl`, `choose` or `lock` fail before recording it |
+| `PIPICO_FAKE_CHOICE=<id\|cancel>` | Answer the chooser with a workspace id, an `<id>:<agent>` agent option, or cancel; without it `choose` fails instead of picking silently |
+| `PIPICO_FAKE_FAIL=<op>` | Make the operation `openApp`, `openUrl`, `choose`, `lock` or `launchAgent` fail before recording it |
 
-Example recorded line: `{"op":"openUrl","url":"https://attention.example/today"}`.
+Example recorded lines:
+
+```
+{"op":"openUrl","url":"https://attention.example/today"}
+{"op":"openApp","app":"com.apple.Terminal","path":"/Users/yusoof/work/infra"}
+{"op":"choose","prompt":"pipico: pick a workspace (cancel opens nothing)","options":["devops","devops:claude","study"]}
+{"op":"launchAgent","agent":"claude","argv":["/usr/bin/env","claude"],"cwd":"/Users/yusoof/work/infra"}
+{"op":"lock"}
+```
 
 ## Config
 
@@ -155,12 +217,35 @@ Configured URLs (`attentionUrl`, workspace `urls`, `incident.monitoringUrls`,
 
 ## Execution rules (all handlers)
 
-- Subprocesses take argv arrays; a shell is never involved.
-- Every subprocess has a bounded timeout and a minimal environment.
-- Pipico never reads the clipboard, never reads shell history and never
-  enumerates environment variables.
-- Incident scaffolding is local only: no SSH, no remote commands, no history
-  or environment capture, no restart, deploy or cleanup.
+Every spawn goes through the one runner in `src/exec.ts`:
+
+- argv arrays only; arguments reach the child verbatim. No shell is ever
+  involved (no `shell` option is ever set), and the program path is always
+  absolute.
+- Every spawn has a mandatory finite timeout; the child is SIGKILLed at it:
+  `open`-family calls 15 s, the osascript chooser 5 min (it waits for the
+  user), an agent launch 6 h (pipico waits for the agent to exit).
+- The child environment is built from an explicit allowlist (`HOME`, `LANG`,
+  `LC_ALL`, `LOGNAME`, `PATH`, `TMPDIR`, `USER`), never inherited wholesale,
+  so parent-only variables such as tokens or `PIPICO_*` test knobs never
+  reach a child. pipico never enumerates environment variables.
+- The child's stdin is ignored.
+- A nonzero child exit is returned to the platform layer and becomes a
+  single-line error; failures never spawn partial follow-ups.
+
+Pipico never reads the clipboard or pasteboard, never reads shell history
+and never enumerates environment variables.
+Incident scaffolding is local only: no remote access, no remote commands, no
+history or environment capture, no restarting, deploying or cleanup.
+
+## Platform status (honest labels)
+
+The macOS operations (`open -a`, `open <url>`, the osascript chooser, the
+lock action, agent launch) are implemented in `src/platform/mac.ts` behind
+the platform interface, with the argv shapes covered by tests through an
+injected spawner. **No Mac is attached in this mission: every real macOS
+execution is NOT_RUN.** On Linux the real platform refuses every action
+with exit 4 and spawns nothing by design.
 
 ## Binding F13–F16 in macOS Shortcuts
 
