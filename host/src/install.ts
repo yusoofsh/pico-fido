@@ -22,7 +22,9 @@
  * and pre-existing resources are left untouched. A file counts as created
  * the moment its exclusive open succeeds — before any byte is written —
  * so a caught partial write is cleaned too, and a retry installs the full
- * file instead of keeping a truncated one. The manifest itself is written
+ * file instead of keeping a truncated one. Contents are written in full or
+ * the error propagates (a short write is never silently accepted). The
+ * manifest itself is written
  * only when absent: a manifest this invocation opened is removed on
  * failure (before the directories, so they are empty); a manifest whose
  * create never succeeded (EEXIST — a foreign one) is never read, compared
@@ -31,7 +33,7 @@
  * install and uninstall never touch the Platform interface: they perform no
  * machine actions, only per-user file management.
  */
-import { chmodSync, closeSync, existsSync, lstatSync, mkdirSync, openSync, rmdirSync, unlinkSync, writeSync } from 'node:fs';
+import { chmodSync, closeSync, existsSync, lstatSync, mkdirSync, openSync, rmdirSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Env } from './handlers/context.ts';
 import type { CliIo } from './handlers/context.ts';
@@ -67,7 +69,9 @@ export interface InstallFsOps {
    * failing chmod) is reverse-cleaned, and a retry writes the full file
    * instead of keeping a truncated one. onOpen never runs when the open
    * itself fails (e.g. EEXIST: a file that appeared concurrently is
-   * foreign and not this invocation's to clean). The handle is closed on
+   * foreign and not this invocation's to clean). The whole content is
+   * written before returning — a short write is completed, never silently
+   * accepted — and an unwritable remainder throws. The handle is closed on
    * every path.
    */
   writeFileNew(path: string, content: string, onOpen?: () => void): void;
@@ -91,7 +95,7 @@ export const realInstallFs: InstallFsOps = {
     const fd = openSync(p, 'wx'); // exclusive create: fails EEXIST, never truncates
     try {
       onOpen?.(); // ownership point: the file now exists, still empty
-      writeSync(fd, c);
+      writeFileSync(fd, c); // writes every byte, or throws: a short write is never ignored
     } finally {
       closeSync(fd);
     }

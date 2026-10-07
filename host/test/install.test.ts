@@ -13,6 +13,7 @@ import { runCli } from '../src/cli.ts';
 import { validateConfig } from '../src/config.ts';
 import {
   configBaseFor,
+  configSkeleton,
   planInstall,
   realInstallFs,
   reverseClean,
@@ -633,6 +634,77 @@ describe('realInstallFs.writeFileNew ownership seam (VAL-HOST-036)', () => {
       expect(() => realInstallFs.writeFileNew(p, 'DATA', () => { throw new Error('boom'); })).toThrow('boom');
     }
     expect(readdirSync('/proc/self/fd').length).toBe(fdsBefore); // no leaked handle
+  });
+});
+
+describe('realInstallFs short-write seam under RLIMIT_FSIZE (prlimit; VAL-HOST-036)', () => {
+  const HOST_DIR = join(import.meta.dir, '..');
+  const CLI = join(HOST_DIR, 'src', 'cli.ts');
+  const BUN = process.execPath;
+  const PRLIMIT = '/usr/bin/prlimit';
+
+  interface SpawnResult { code: number | null; stdout: string; stderr: string }
+
+  async function spawnInstall(env: Record<string, string | undefined>, fsize?: number): Promise<SpawnResult> {
+    const argv = fsize === undefined ? [BUN, CLI, 'install'] : [PRLIMIT, `--fsize=${fsize}`, BUN, CLI, 'install'];
+    const proc = Bun.spawn(argv, { env, cwd: HOST_DIR, stdout: 'pipe', stderr: 'pipe' });
+    const [stdout, stderr, code] = await Promise.all([
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+      proc.exited,
+    ]);
+    return { code, stdout, stderr };
+  }
+
+  /** Snapshot that ignores `.bun`: bun's own runtime creates it, not pipico. */
+  function snapshotHome(home: string): string {
+    return snapshotDir(home)
+      .split('\n')
+      .filter((line) => line === '' || !line.split(' ')[1]!.startsWith('.bun'))
+      .join('\n');
+  }
+
+  it('a real short write fails the install (no exit-0 truncated config), cleans owned resources, and a clean retry installs everything in full', async () => {
+    const home = newHome();
+    const config = join(home, '.config/pipico/config.json');
+    const manifest = manifestPathFor(join(home, '.config'));
+    const before = snapshotHome(home);
+
+    // The first file install writes is the config skeleton (~450 bytes). With
+    // a file size limit of 8 bytes the kernel truncates the first write() to
+    // 8 bytes — a real short write — and the completion of the write fails
+    // with EFBIG. The old single writeSync ignored the short count and exited
+    // 0 leaving a truncated config.json and a manifest listing it.
+    const failed = await spawnInstall({ HOME: home }, 8);
+    expect(failed.code).toBe(1);
+    expect(failed.stderr).toContain('EFBIG');
+    expect(failed.stderr).toContain('rolling back');
+    expect(failed.stdout).toContain('rollback'); // the owned partial config is reverse-cleaned
+    expect(existsSync(config)).toBe(false); // no truncated config survives the failure
+    expect(existsSync(manifest)).toBe(false); // and nothing lists it
+    expect(existsSync(join(home, '.config'))).toBe(false); // no untracked empty ancestors
+    expect(existsSync(join(home, '.local'))).toBe(false);
+    expect(existsSync(join(home, '.local/bin/pipico'))).toBe(false);
+    expect(snapshotHome(home)).toBe(before);
+
+    // Clean retry (no limit): full config, full executable wrapper, manifest.
+    const retry = await spawnInstall({ HOME: home });
+    expect(retry.code).toBe(0);
+    expect(readFileSync(config, 'utf8')).toBe(configSkeleton(home)); // full, not truncated
+    const wrapper = join(home, '.local/bin/pipico');
+    expect(readFileSync(wrapper, 'utf8')).toBe(wrapperScript({ bunPath: BUN, cliPath: CLI }));
+    expect(statSync(wrapper).mode & 0o777).toBe(0o755);
+    const listed: string[] = JSON.parse(readFileSync(manifest, 'utf8')).resources.map((e: { path: string }) => e.path);
+    expect(new Set(listed)).toEqual(
+      new Set([
+        join(home, '.config'),
+        join(home, '.config/pipico'),
+        join(home, '.config/pipico/config.json'),
+        join(home, '.local'),
+        join(home, '.local/bin'),
+        join(home, '.local/bin/pipico'),
+      ]),
+    );
   });
 });
 
