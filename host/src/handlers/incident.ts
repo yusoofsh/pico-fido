@@ -7,8 +7,9 @@
  *   refusal; files are written with exclusive-create flags);
  * - the platform calls are exactly one URL-open per configured monitoring
  *   URL, in order;
- * - there is no SSH, no remote command, no restart, no deploy, no cleanup
- *   and no capture of history, environment or clipboard. The folder the run
+ * - there is no remote access of any kind: no shell out to remote hosts, no
+ *   rebooting or tearing down of services, no cleanup, and no capture of
+ *   history, environment or typed/pasted input. The folder the run
  *   created stays in place even when a later URL open fails.
  */
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -38,15 +39,15 @@ One-line summary:
 
 ## Timeline (UTC or local, be consistent)
 
-- 
+-
 
 ## What we know
 
-- 
+-
 
 ## What we do NOT know yet
 
-- 
+-
 
 ## Evidence
 
@@ -62,16 +63,16 @@ const HANDOFF_TEMPLATE = `# Handoff — {TIMESTAMP}
 
 ## Status right now
 
-- 
+-
 
 ## Who is affected
 
-- 
+-
 
 ## Next steps
 
-1. 
-2. 
+1.
+2.
 
 ## Where things live
 
