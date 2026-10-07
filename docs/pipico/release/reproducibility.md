@@ -73,18 +73,40 @@ to 1192 B (`budget-fresh-clone.txt`).
 The ELF additionally carries debug info with the same absolute paths
 (its hash differs the same way).
 
+## Second nondeterminism source: the compiler build date (`__DATE__`)
+
+The Pico SDK 2.3.1 embeds the compiler build date in the image:
+`src/rp2_common/pico_standard_binary_info/standard_binary_info.c` emits
+`bi_program_build_date_string(__DATE__)` unless
+`PICO_NO_BI_PROGRAM_BUILD_DATE` is set. `__DATE__` is the date the compiler
+runs (and compiler date handling is not universally UTC), so two builds at
+the **same path on different dates** can also hash differently. The
+fixed-path equality observed below was seen only across runs that all built
+on the same UTC date (2026-10-07); it is a conditional stability
+observation for same-path/same-date builds, **not** a reproducibility
+guarantee and not evidence about different dates. No build input was
+altered to suppress the path strings or the date metadata.
+
 ## Consequences
 
 - No file in `docs/pipico/`, the root `README.md` or the draft PR claims
   a reproducible build.
-- A build from a fixed path is stable for identical build inputs,
-  observed directly: the CI artifacts of runs `37682443999` (source
-  `5833bc2`, 7 docs-only commits earlier) and `37685884106` (source
-  `b31a8ab`) carry byte-identical `pico_fido.uf2` (`cfbaa430…`),
-  `pico_fido.elf` (`5e872a1c…`) and `pico_fido.bin` (`ce8b8be4…`) —
-  both runs build at the same fixed runner path, and docs-only commits
-  change no build input. Rerunning the bounds gate on the released
-  binaries reprints the same numbers (`image-bounds-report.json`).
-- A future fix (compiling with `-ffile-prefix-map` or relative source
-  paths) is possible but was not in scope for this feature; the honest
-  state is recorded instead.
+- A build from a fixed path was stable for identical build inputs **within
+  the observed same-date window**: the CI artifacts of runs `37682443999`
+  (source `5833bc2`, 7 docs-only commits earlier) and `37685884106`
+  (source `b31a8ab`) carry byte-identical `pico_fido.uf2` (`cfbaa430…`) and
+  `pico_fido.elf` (`5e872a1c…`) — both runs build at the same fixed runner
+  path and on the same UTC build date, and docs-only commits change no
+  build input. **The `.bin` was not uploaded by either run**: its
+  `ce8b8be4…` hash there is manifest-only evidence (computed inside the run
+  and recorded in the artifact `manifest.txt`, never downloaded). The
+  first run whose artifact actually contains the `.bin` is `37690147169`;
+  its downloaded `.bin` hashes exactly to that manifest-only value, and the
+  later runs (`37691662474`, `37693278603`) re-verified the same three
+  downloaded hashes, all within the same build date.
+- Rerunning the bounds gate on the released binaries reprints the same
+  numbers (`image-bounds-report.json`).
+- A future fix (compiling with `-ffile-prefix-map`, setting
+  `PICO_NO_BI_PROGRAM_BUILD_DATE`, or relative source paths) is possible
+  but was not approved for this release; the honest state is recorded
+  instead, and the build inputs are unchanged.

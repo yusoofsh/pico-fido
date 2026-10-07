@@ -99,7 +99,8 @@ exit 0); `tsc --noEmit` clean (exit 0).
 | `37685884106` | pico-fido / `pipico` | `b31a8ab969536d754a7737c3ffe12bf7c6e3da5f` | **success** | root ctest 67/67; pytest 348 passed / 3 skipped / 1 deselected / 0 failed; bun 315 pass / 0 fail; bounds self-test 17/17; budget OK (20 B / 1192 B) |
 | `37687857080` | pico-fido / `pipico` | `5ba8b086972ebe931c74352e8930b9f19a71dd87` | **success** | same counts (junit receipt 351 testcases = 348 passed + 3 skipped; artifact downloaded and checked) |
 | `37690147169` | pico-fido / `pipico` | `aa09cf4f28ea63d909bf86bf780d6f4c857f1c6b` | **success** | same counts; first artifact that also uploads `pico_fido.bin` (all three hashes re-verified against the downloaded files) |
-| `37691662474` | pico-fido / `pipico` | `5e250a559f8b7436cef8be8af9644e257e72d649` (push; the definitive head) | **success** | same counts; artifact `manifest.txt` records `root-sha: 5e250a5…`, `sdk-gitlink: 654fbda…`; all three binary hashes re-verified against the downloaded files |
+| `37691662474` | pico-fido / `pipico` | `5e250a559f8b7436cef8be8af9644e257e72d649` (push) | **success** | same counts; artifact `manifest.txt` records `root-sha: 5e250a5…`, `sdk-gitlink: 654fbda…`; all three binary hashes re-verified against the downloaded files |
+| `37693278603` | pico-fido / `pipico` | `0e74670d0965662563f1bfcb1811834568acde27` (push) | **success** | same counts (verified again in the correction session: run metadata `conclusion=success` on that headSha) |
 
 The draft PRs also triggered `pull_request`-event runs of the same
 workflow (contents: read); they concluded success too. A `pull_request`
@@ -107,13 +108,19 @@ run checks out GitHub's ephemeral merge commit, so its artifact
 `manifest.txt` records that merge SHA, not the branch head — the
 push-event run of the same head is the release-evidence source.
 
-The final documentation-only commits of the release branch (including
-this one) change no build input, so the artifact of the branch's final
-green run carries the same binaries with the same hashes (§4 of
-`RELEASE-MANIFEST.md`); its run id is recorded in the mission
-publication record.
+The documentation-only commits after the built SHA (each named in
+`HANDOFF.md`) change no build input, so the artifacts of their push runs
+carry the same binaries with the same hashes (§4 of
+`RELEASE-MANIFEST.md`); the receipt row for each pushed range is
+appended by the following commit, and the receipt of the newest push is
+recorded in the mission publication record until the next docs commit
+lands. All runs cited in this file built within the same UTC date
+(2026-10-07); the Pico SDK embeds the compiler build date (`__DATE__`)
+in the image, so the byte-equality observations are same-date
+observations (`reproducibility.md`).
 
 Both runs also confirm the earlier observation on the same build inputs:
 runs `37682443999` (source `5833bc2`) and `37685884106` uploaded
 byte-identical firmware artifacts (verified by downloading both
-artifacts and comparing `sha256sum`).
+artifacts and comparing `sha256sum`; the `.bin` was manifest-only in
+those two runs — see §4 of `RELEASE-MANIFEST.md`).

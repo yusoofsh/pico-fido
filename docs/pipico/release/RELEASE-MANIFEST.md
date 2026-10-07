@@ -81,11 +81,16 @@ produced it.
 
 Released artifacts are byte-identical across every successful run of
 this branch since `5833bc2…` (docs-only and workflow-only commits change
-no build input; verified by download each time). The hashes below were
-verified against the **actually downloaded files** of run `37690147169`
-(workflow `pipico`, root `aa09cf4f28ea63d909bf86bf780d6f4c857f1c6b`, the
-run that first uploaded the `.bin`; the same three hashes are printed in
-that artifact's `manifest.txt`):
+no build input; verified by download each time). All of those runs built
+on the same UTC date (2026-10-07): the Pico SDK embeds the compiler build
+date (`__DATE__`, via `bi_program_build_date_string`) in the image, so
+this is a same-path, same-date stability observation — not evidence about
+different dates and not a reproducibility guarantee (`reproducibility.md`).
+The hashes below were verified against the **actually downloaded files**
+of run `37690147169` (workflow `pipico`, root
+`aa09cf4f28ea63d909bf86bf780d6f4c857f1c6b`, the run that first uploaded
+the `.bin`; the same three hashes are printed in that artifact's
+`manifest.txt`):
 
 | File | SHA-256 |
 |---|---|
@@ -166,6 +171,12 @@ head `b31a8ab…`) concluded **success** and uploaded the artifact
 observed in that run's receipts are recorded in `test-receipts.md`.
 Runs `37687857080` (head `5ba8b08…`) and `37690147169` (head `aa09cf4…`,
 the first with the `.bin` uploaded — see §4) concluded **success** with
-the same counts and byte-identical `uf2`/`elf` (and `bin`) files; the
-artifact of the final documentation-only head of this branch carries the
-same binaries as well (docs-only commits change no build input).
+the same counts and byte-identical `uf2`/`elf` files (for run
+`37687857080` the `.bin` was manifest-only, as in every run before
+`37690147169`); the push run `37693278603` on the last documentation-only
+head before the correction round (`0e74670…`) concluded **success** with
+the same downloaded hashes. Docs-only commits and README-only SDK
+gitlink bumps change no build input, so the artifact of the branch's
+final head carries the same binaries as well (the final artifact
+manifest of the final successful push run is the authoritative final
+tuple).
