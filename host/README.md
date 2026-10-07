@@ -78,10 +78,41 @@ never fills in forms, never submits, never answers and never marks
 attendance, and the CLI itself makes no network requests.
 
 **lock (F16).** One platform call of kind `lock` and nothing else. On macOS
-the fixed argv is `/usr/bin/open /System/Library/CoreServices/ScreenSaverEngine.app`
-(starting the screen saver locks the workstation under the user's own
-existing settings). pipico never reverses a lock and never changes any
+the single fixed operation is:
+
+```
+/usr/bin/osascript -e 'tell application "System Events" to keystroke "q" using {command down, control down}'
+```
+
+That is Apple's documented Control-Command-Q "Lock Screen" shortcut,
+dispatched through System Events by a static script. The script text is a
+source constant in `src/platform/mac.ts`: no config or user data is ever
+interpolated, and there is no fallback. This locks the session immediately
+and does not depend on any screensaver or password-delay setting (opening
+`ScreenSaverEngine.app` would only start the screen saver, which locks only
+if the user's own password-delay settings say so — that is why pipico does
+not use it). pipico never reverses a lock and never changes any
 authentication or power setting.
+
+Exactly one spawn is attempted: a timeout (60 s bound), a nonzero exit or a
+denied permission makes the CLI exit nonzero with one short error line. When
+macOS refuses the keystroke, the error names the permission panes to grant
+(below); pipico does not retry and does not fall back.
+
+### Lock permissions (macOS prerequisite)
+
+The first real `pipico lock` needs one-time approvals for the app that runs
+pipico (Terminal, or whatever hosts the Shortcuts wrapper):
+
+1. **Automation:** System Settings > Privacy & Security > Automation >
+   `<host app>` > System Events (allow controlling System Events).
+2. **Accessibility:** System Settings > Privacy & Security > Accessibility
+   (allow the host app to send keystrokes).
+
+Without them, macOS refuses the keystroke and pipico exits nonzero with one
+clear error naming both panes. These grants are per-app and per-user; pipico
+never modifies them itself. Real macOS execution of the lock (and of every
+other platform action) is NOT_RUN in this mission.
 
 ## doctor
 
@@ -395,5 +426,9 @@ tooling only: `typescript` and `@types/bun`.
   unchanged", exclude `.bun` or run `bun src/cli.ts --help` once before the
   snapshot.
 - Real macOS behavior (`open -a`, `open <url>`, the `osascript` chooser, the
-  lock action) is implemented behind the platform layer and is NOT_RUN in
-  this mission; on Linux the real platform refuses everything by design.
+  osascript lock keystroke) is implemented behind the platform layer and is
+  NOT_RUN in this mission; on Linux the real platform refuses everything by
+  design. The lock additionally needs one-time Automation and Accessibility
+  grants for the host app (see "Lock permissions" above) — a checklist for
+  verifying this on the real Mac lives in `docs/pipico/HARDWARE-TESTS.md`
+  (written in the release milestone).
