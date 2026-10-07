@@ -10,15 +10,23 @@
  *
  * where <base> is $XDG_CONFIG_HOME when set (it must resolve under $HOME or
  * install refuses), else $HOME/.config — the same base the config loader
- * uses. Existing files are never overwritten: they are kept untouched and
- * unlisted, so re-running is safe (idempotent) and uninstall never removes
- * anything pipico did not create. The manifest itself is written only when
- * absent. --dry-run prints the exact plan and writes nothing.
+ * uses. Every missing directory between $HOME and <base> is planned as its
+ * own resource (never a recursive mkdir), so a nested XDG layout like
+ * <base>=$HOME/a/b/config installs, the dry run lists each missing ancestor
+ * shallowest-first, and the manifest records each one it created. Existing
+ * files are never overwritten: they are kept untouched and unlisted, so
+ * re-running is safe (idempotent) and uninstall never removes anything
+ * pipico did not create. If an ordinary caught error strikes mid-install,
+ * the resources this invocation successfully created are reverse-cleaned
+ * (files unlinked, then directories rmdir'd deepest-first, only when empty)
+ * and pre-existing resources are left untouched. The manifest itself is
+ * written only when absent. --dry-run prints the exact plan and writes
+ * nothing.
  *
  * install and uninstall never touch the Platform interface: they perform no
  * machine actions, only per-user file management.
  */
-import { chmodSync, existsSync, mkdirSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, rmdirSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Env } from './handlers/context.ts';
 import type { CliIo } from './handlers/context.ts';
@@ -33,6 +41,49 @@ import {
 } from './manifest.ts';
 
 export type { Env };
+
+/**
+ * The filesystem operations install performs, in one injectable object: the
+ * real CLI uses the node:fs implementations below; tests inject failures
+ * (a chmod error after a successful write) to exercise the rollback.
+ * Every operation is flat: mkdir and rmdir are never recursive, so each
+ * created directory is planned and recorded individually.
+ */
+export interface InstallFsOps {
+  exists(path: string): boolean;
+  isSymlink(path: string): boolean;
+  mkdir(path: string): void;
+  /** Exclusive create: fails when the path already exists (never truncates). */
+  writeFileNew(path: string, content: string): void;
+  chmod(path: string, mode: number): void;
+  unlink(path: string): void;
+  /** Only removes an empty directory (plain rmdir). */
+  rmdir(path: string): void;
+  readIfExists(path: string): string | undefined;
+}
+
+export const realInstallFs: InstallFsOps = {
+  exists: (p) => existsSync(p),
+  isSymlink: (p) => {
+    try {
+      return lstatSync(p).isSymbolicLink();
+    } catch {
+      return false;
+    }
+  },
+  mkdir: (p) => mkdirSync(p),
+  writeFileNew: (p, c) => writeFileSync(p, c, { flag: 'wx' }),
+  chmod: (p, m) => chmodSync(p, m),
+  unlink: (p) => unlinkSync(p),
+  rmdir: (p) => rmdirSync(p),
+  readIfExists: (p) => {
+    try {
+      return readFileSync(p, 'utf8');
+    } catch {
+      return undefined;
+    }
+  },
+};
 
 export interface InstallRuntime {
   /** Absolute path of the bun binary the wrapper must exec. */
@@ -100,8 +151,10 @@ export function configSkeleton(home: string): string {
 }
 
 /**
- * The config base directory: $XDG_CONFIG_HOME when set (must be absolute and
- * under $HOME), else $HOME/.config — the same base as the config loader.
+ * The config base directory: $XDG_CONFIG_HOME when set (must be an absolute,
+ * normalized path under $HOME — a `..` or `.` segment would make install
+ * create directories its plan does not name), else $HOME/.config — the same
+ * base as the config loader.
  */
 export function configBaseFor(env: Env): { ok: true; base: string } | { ok: false; error: string } {
   const home = env.HOME;
@@ -115,7 +168,15 @@ export function configBaseFor(env: Env): { ok: true; base: string } | { ok: fals
   const xdg = env.XDG_CONFIG_HOME;
   if (xdg !== undefined && xdg !== '') {
     const base = xdg.replace(/\/+$/, '');
-    if (!base.startsWith('/') || base === '/' || !base.startsWith(`${homeNorm}/`)) {
+    const segments = base.split('/').filter((s) => s !== '');
+    const notNormalized = segments.some((s) => s === '..' || s === '.');
+    if (!base.startsWith('/') || base === '/' || notNormalized) {
+      return {
+        ok: false,
+        error: `XDG_CONFIG_HOME (${echoSafe(xdg)}) must be an absolute, normalized path (no ".." or ".") under HOME: pipico writes only under $HOME`,
+      };
+    }
+    if (!base.startsWith(`${homeNorm}/`)) {
       return {
         ok: false,
         error: `XDG_CONFIG_HOME (${echoSafe(xdg)}) must be an absolute path under HOME: pipico writes only under $HOME`,
@@ -126,11 +187,40 @@ export function configBaseFor(env: Env): { ok: true; base: string } | { ok: fals
   return { ok: true, base: join(homeNorm, '.config') };
 }
 
+/**
+ * Every directory install plans for this layout — existing or missing — in
+ * shallow-first order (each path sorts before its descendants): the config
+ * base and every directory between HOME and it (a nested XDG base like
+ * $HOME/a/b/config contributes $HOME/a, $HOME/a/b, $HOME/a/b/config), then
+ * <base>/pipico, $HOME/.local and $HOME/.local/bin. HOME itself is never a
+ * resource. Which of them actually need creating is decided at run time;
+ * they are all created as individual plain mkdirs so the manifest can list
+ * exactly what this invocation created.
+ */
+export function candidateDirs(home: string, configBase: string): string[] {
+  const homeNorm = home.replace(/\/+$/, '');
+  const base = configBase.replace(/\/+$/, '');
+  const dirs = new Set<string>();
+  if (base.startsWith(`${homeNorm}/`)) {
+    let cur = homeNorm;
+    for (const seg of base.slice(homeNorm.length + 1).split('/')) {
+      if (seg === '' || seg === '.') continue;
+      cur = `${cur}/${seg}`;
+      dirs.add(cur);
+    }
+  } else {
+    dirs.add(base);
+  }
+  dirs.add(join(base, 'pipico'));
+  dirs.add(join(homeNorm, '.local'));
+  dirs.add(join(homeNorm, '.local/bin'));
+  return [...dirs].sort((a, b) => a.split('/').length - b.split('/').length || a.localeCompare(b));
+}
+
 /** The ordered install plan: directories first (shallow), then files. */
 export function planInstall(home: string, configBase: string, runtime: InstallRuntime): PlannedResource[] {
   const homeNorm = home.replace(/\/+$/, '');
-  const dirs = [...new Set([configBase, join(configBase, 'pipico'), join(homeNorm, '.local'), join(homeNorm, '.local/bin')])]
-    .sort((a, b) => a.split('/').length - b.split('/').length || a.localeCompare(b));
+  const dirs = candidateDirs(homeNorm, configBase);
   return [
     ...dirs.map((path) => ({ kind: 'dir' as const, path })),
     {
@@ -154,11 +244,51 @@ function describeEntry(r: PlannedResource): string {
   return r.kind === 'dir' ? `directory ${r.path}` : `file ${r.path} (${r.what})`;
 }
 
+/**
+ * Reverse-order cleanup of ONLY the resources this invocation created
+ * (passed in creation order). Created files are unlinked first (they were
+ * created after the directories), then the created directories deepest-first,
+ * each with a plain rmdir: a directory that acquired a file pipico did not
+ * create is kept, never recursed into, and so are the ancestors still needed
+ * to contain it. Directories that were pre-existing are not in the list and
+ * are never touched. Best effort: every outcome is reported, failures do not
+ * stop the remaining cleanup.
+ */
+export function reverseClean(created: ManifestResource[], io: CliIo, ops: InstallFsOps = realInstallFs): void {
+  const files = created.filter((r) => r.type === 'file').map((r) => r.path);
+  const dirs = created
+    .filter((r) => r.type === 'dir')
+    .map((r) => r.path)
+    .sort((a, b) => b.split('/').length - a.split('/').length);
+  for (const path of [...files].reverse()) {
+    try {
+      ops.unlink(path);
+      io.out(`install: rollback: removed file ${path}`);
+    } catch (e) {
+      io.err(`install: rollback: could not remove file ${echoSafe(path)}: ${echoSafe(String(e instanceof Error ? e.message : e))}`);
+    }
+  }
+  for (const path of dirs) {
+    try {
+      ops.rmdir(path);
+      io.out(`install: rollback: removed empty directory ${path}`);
+    } catch (e) {
+      const code = (e as { code?: string }).code;
+      if (code === 'ENOTEMPTY') {
+        io.out(`install: rollback: kept directory ${path} (not empty; it holds resources pipico did not create)`);
+      } else {
+        io.err(`install: rollback: could not remove directory ${echoSafe(path)}: ${echoSafe(String(e instanceof Error ? e.message : e))}`);
+      }
+    }
+  }
+}
+
 export async function runInstallCommand(
   dryRun: boolean,
   env: Env,
   io: CliIo,
   runtime: InstallRuntime = defaultRuntime(),
+  ops: InstallFsOps = realInstallFs,
 ): Promise<number> {
   const base = configBaseFor(env);
   if (!base.ok) {
@@ -169,35 +299,82 @@ export async function runInstallCommand(
   const manifestPath = manifestPathFor(base.base);
 
   io.out(dryRun ? 'install: dry run; nothing will be created (HOME unchanged)' : `install: writing only under ${home}`);
-  const created: ManifestResource[] = [];
 
-  for (const entry of planInstall(home, base.base, runtime)) {
-    if (existsSync(entry.path)) {
-      io.out(`install: exists, keeping it (never overwritten, not listed in the manifest): ${entry.path}`);
-      continue;
+  // Preflight: a planned directory that exists as a symbolic link would
+  // redirect every write below it (possibly outside $HOME). Refuse before
+  // creating anything, in dry runs too (the real run would refuse there).
+  for (const dir of candidateDirs(home, base.base)) {
+    if (ops.isSymlink(dir)) {
+      io.err(`error: install: ${echoSafe(dir)} is a symbolic link; refusing to create resources below it (pipico never follows links, and writes only under $HOME)`);
+      return 1;
     }
-    if (dryRun) {
-      io.out(`install: would create ${describeEntry(entry)}`);
-      continue;
-    }
-    if (entry.kind === 'dir') {
-      mkdirSync(entry.path); // parents are created earlier in the plan
-      created.push({ path: entry.path, type: 'dir' });
-    } else {
-      writeFileSync(entry.path, entry.content, { flag: 'wx' });
-      chmodSync(entry.path, entry.mode);
-      created.push({ path: entry.path, type: 'file', sha256: hashContent(entry.content), mode: entry.mode.toString(8).padStart(4, '0') });
-    }
-    io.out(`install: created ${describeEntry(entry)}`);
   }
 
-  if (existsSync(manifestPath)) {
-    io.out(`install: manifest already exists, keeping it (never overwritten): ${manifestPath}`);
-  } else if (dryRun) {
-    io.out(`install: would create file ${manifestPath} (${MANIFEST_FILENAME}, listing the created resources)`);
-  } else {
-    writeFileSync(manifestPath, serializeManifest(created), { flag: 'wx' });
-    io.out(`install: created file ${manifestPath} (${created.length} resources listed)`);
+  const created: ManifestResource[] = [];
+  // Whether this invocation attempted the manifest write, and the content it
+  // intended — used to remove a partially written manifest on failure (a
+  // pre-existing manifest is never touched: the exists branch keeps it).
+  let manifestAttempted = false;
+
+  try {
+    for (const entry of planInstall(home, base.base, runtime)) {
+      if (ops.exists(entry.path)) {
+        io.out(`install: exists, keeping it (never overwritten, not listed in the manifest): ${entry.path}`);
+        continue;
+      }
+      if (dryRun) {
+        io.out(`install: would create ${describeEntry(entry)}`);
+        continue;
+      }
+      if (entry.kind === 'dir') {
+        ops.mkdir(entry.path); // plain mkdir: every ancestor is its own planned entry
+        created.push({ path: entry.path, type: 'dir' });
+      } else {
+        ops.writeFileNew(entry.path, entry.content);
+        // Record the creation BEFORE the chmod: if the chmod fails, the file
+        // exists on disk and must be reverse-cleaned with the rest.
+        created.push({
+          path: entry.path,
+          type: 'file',
+          sha256: hashContent(entry.content),
+          mode: entry.mode.toString(8).padStart(4, '0'),
+        });
+        ops.chmod(entry.path, entry.mode);
+      }
+      io.out(`install: created ${describeEntry(entry)}`);
+    }
+
+    if (ops.exists(manifestPath)) {
+      io.out(`install: manifest already exists, keeping it (never overwritten): ${manifestPath}`);
+    } else if (dryRun) {
+      io.out(`install: would create file ${manifestPath} (${MANIFEST_FILENAME}, listing the created resources)`);
+    } else {
+      const content = serializeManifest(created);
+      manifestAttempted = true;
+      ops.writeFileNew(manifestPath, content);
+      io.out(`install: created file ${manifestPath} (${created.length} resources listed)`);
+    }
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    io.err(`error: install: ${echoSafe(message)}`);
+    io.err('error: install: rolling back the resources this invocation created (pre-existing files and directories are left untouched)');
+    reverseClean(created, io, ops);
+    // A write that fails midway (e.g. disk full) can leave a partial file;
+    // remove it only when it is byte-wise a prefix of what this invocation
+    // intended to write, so a manifest created by someone else survives.
+    if (manifestAttempted) {
+      const intended = serializeManifest(created);
+      const partial = ops.readIfExists(manifestPath);
+      if (partial !== undefined && intended.startsWith(partial)) {
+        try {
+          ops.unlink(manifestPath);
+          io.out(`install: rollback: removed partial manifest ${manifestPath}`);
+        } catch {
+          /* best effort */
+        }
+      }
+    }
+    return 1;
   }
 
   // Binding guidance, with the absolute path install creates — both in the
