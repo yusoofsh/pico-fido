@@ -84,6 +84,16 @@ software levels stand on the final tuple too.
   PR head tracks the branch), and each body describes everything the
   branch adds relative to `main`, with the status vocabulary and the
   four NOT_RUN items.
+- **Upstream PRs**: the mission opened none. `gh pr list --author @me`
+  against the upstream `polhenarejos/*` repos lists the user's own
+  pre-existing PRs (pico-fido
+  [#295](https://github.com/polhenarejos/pico-fido/pull/295), pico-keys-sdk
+  [#37](https://github.com/polhenarejos/pico-keys-sdk/pull/37)); both were
+  created 2026-10-05T03:59Z, about four hours before the first mission
+  commit (`9256c2b`, 2026-10-05T08:03Z), and carry exactly the user's
+  `fix/*` patches the mission builds on. The mission's gh identity is the
+  user's account, so those queries are not empty — recorded here so the
+  distinction is explicit.
 - **Publication receipts** (every push of the mission branches, M2–M5, with
   old..new ranges and CI run ids): `MANIFEST.md`, "OBSERVED: push receipts".
 

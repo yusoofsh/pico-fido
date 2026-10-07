@@ -99,6 +99,13 @@ exit 0); `tsc --noEmit` clean (exit 0).
 | `37685884106` | pico-fido / `pipico` | `b31a8ab969536d754a7737c3ffe12bf7c6e3da5f` | **success** | root ctest 67/67; pytest 348 passed / 3 skipped / 1 deselected / 0 failed; bun 315 pass / 0 fail; bounds self-test 17/17; budget OK (20 B / 1192 B) |
 | `37687857080` | pico-fido / `pipico` | `5ba8b086972ebe931c74352e8930b9f19a71dd87` | **success** | same counts (junit receipt 351 testcases = 348 passed + 3 skipped; artifact downloaded and checked) |
 | `37690147169` | pico-fido / `pipico` | `aa09cf4f28ea63d909bf86bf780d6f4c857f1c6b` | **success** | same counts; first artifact that also uploads `pico_fido.bin` (all three hashes re-verified against the downloaded files) |
+| `37691662474` | pico-fido / `pipico` | `5e250a559f8b7436cef8be8af9644e257e72d649` (push; the definitive head) | **success** | same counts; artifact `manifest.txt` records `root-sha: 5e250a5…`, `sdk-gitlink: 654fbda…`; all three binary hashes re-verified against the downloaded files |
+
+The draft PRs also triggered `pull_request`-event runs of the same
+workflow (contents: read); they concluded success too. A `pull_request`
+run checks out GitHub's ephemeral merge commit, so its artifact
+`manifest.txt` records that merge SHA, not the branch head — the
+push-event run of the same head is the release-evidence source.
 
 The final documentation-only commits of the release branch (including
 this one) change no build input, so the artifact of the branch's final

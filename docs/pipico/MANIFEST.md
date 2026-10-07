@@ -165,6 +165,7 @@ existed before M5, so early root pushes name none.
 | 2026-10-07 | m5-docs-and-handoff | root `pipico/integration-v1` `5833bc2…b31a8ab969536d754a7737c3ffe12bf7c6e3da5f` (gitlink bump + docs series) | `37685884106` success on `b31a8ab…` |
 | 2026-10-07 | m5-release-evidence-and-repro | root `pipico/integration-v1` `b31a8ab…5ba8b086972ebe931c74352e8930b9f19a71dd87` (release-evidence docs commits `6499200` bundle + `5ba8b08` manifest/handoff refresh) | `37687857080` success on `5ba8b08…` |
 | 2026-10-07 | m5-push-ci-and-draft-prs | root `pipico/integration-v1` `5ba8b08…aa09cf4f28ea63d909bf86bf780d6f4c857f1c6b` (workflow commit `6def65d` upload the bin + `aa09cf4` receipt row) | `37690147169` success on `aa09cf4…` |
+| 2026-10-07 | m5-push-ci-and-draft-prs | root `pipico/integration-v1` `aa09cf4…5e250a559f8b7436cef8be8af9644e257e72d649` (draft-PR + final documentation commits) | `37691662474` success on `5e250a5…` (push event; the draft PRs also ran the same workflow on the PR event, success) |
 
 (The release-evidence docs commits pushed after `b31a8ab…` are named in
 `HANDOFF.md` and `docs/pipico/release/`; they are documentation-only and
@@ -178,20 +179,19 @@ mission publication record.)
 
 Notes:
 
-- The final root CI run observed so far is `37690147169` (workflow
-  `pipico.yml`, branch `pipico/integration-v1`, head
-  `aa09cf4f28ea63d909bf86bf780d6f4c857f1c6b`): it concluded success with
-  the release-evidence artifact (the first that also uploads
-  `pico_fido.bin`); its receipts showed root host ctest 67/67, pytest
-  348 passed / 3 skipped / 0 failed / 0 errors plus the single
-  deselected vault test (junit receipt: 348 + 3 + 1 testcases), `bun
-  test` 315 pass / 0 fail, bounds self-test 17/17 and the budget gate OK
-  (RAM +20 B / 8192, flash +1192 B / 65536). The earlier runs
-  `37682443999` (head `5833bc2…`), `37685884106` (head `b31a8ab…`) and
-  `37687857080` (head `5ba8b08…`) were green with byte-identical
-  firmware artifacts (each artifact's `manifest.txt` hashes re-verified;
-  the uf2/elf downloaded and compared). The release bundle built from
-  `b31a8ab…` lives in `docs/pipico/release/`.
+- The final root CI run observed so far is `37691662474` (workflow
+  `pipico.yml`, branch `pipico/integration-v1`, push event, head
+  `5e250a559f8b7436cef8be8af9644e257e72d649`): it concluded success with
+  the release-evidence artifact (which contains `pico_fido.bin`); its
+  receipts showed root host ctest 67/67, pytest 348 passed / 3 skipped /
+  0 failed / 0 errors plus the single deselected vault test (junit
+  receipt: 348 + 3 + 1 testcases), `bun test` 315 pass / 0 fail, bounds
+  self-test 17/17 and the budget gate OK (RAM +20 B / 8192, flash +1192 B
+  / 65536). The earlier runs `37682443999` (head `5833bc2…`),
+  `37685884106` (head `b31a8ab…`), `37687857080` (head `5ba8b08…`) and
+  `37690147169` (head `aa09cf4…`) were green with byte-identical
+  firmware artifacts (each artifact downloaded; hashes re-verified). The
+  release bundle built from `b31a8ab…` lives in `docs/pipico/release/`.
 - The last SDK CI observation is run `37685874677` (success) on
   `pipico/companion-hooks` @ `654fbda…` (a README-only commit on top of
   `3201dbd…`), the exact gitlink of the root head above.
