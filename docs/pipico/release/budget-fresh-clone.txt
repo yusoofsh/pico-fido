@@ -1,0 +1,52 @@
+Companion budget from fresh clones (VAL gate: check-budget.sh, limits
+8192 B static RAM / 65536 B linked flash; companion ON vs a fresh
+PIPICO_COMPANION=OFF baseline built in the same clone from the same
+source and dependency tuple).
+
+Command run in each fresh clone (build-pipico = companion ON, already
+built by scripts/pipico/build.sh; build-pipico-nocompanion = the OFF
+baseline, built by the gate itself because it was missing):
+
+  PIPICO_BUILD_DIR="$PWD/build-pipico" bash scripts/pipico/check-budget.sh
+
+rb1 (/home/factory-user/work/build-scratch/rb1, root b31a8ab969536d754a7737c3ffe12bf7c6e3da5f, SDK 654fbda1046c0dba3832ff520f7d1ea25d1df45b), 2026-10-07:
+
+  pipico-budget: companion build:  .data=7584 .bss=95448 .text=430356 .rodata=107780
+  pipico-budget: baseline build:   .data=7584 .bss=95428 .text=429156 .rodata=107780
+  pipico-budget: static RAM (.data+.bss) delta: 20 B (limit 8192 B): OK
+  pipico-budget: linked flash (.text+.rodata+.data) delta: 1200 B (limit 65536 B): OK
+  {"ram": {"companion": 103032, "baseline": 103012, "delta": 20, "limit": 8192, "ok": true}, "flash": {"companion": 545720, "baseline": 544520, "delta": 1200, "limit": 65536, "ok": true}}
+  pipico-budget: OK
+
+rb2 (/home/factory-user/work/build-scratch/rb2, same SHAs), 2026-10-07:
+
+  pipico-budget: companion build:  .data=7584 .bss=95448 .text=430356 .rodata=107780
+  pipico-budget: baseline build:   .data=7584 .bss=95428 .text=429156 .rodata=107780
+  pipico-budget: static RAM (.data+.bss) delta: 20 B (limit 8192 B): OK
+  pipico-budget: linked flash (.text+.rodata+.data) delta: 1200 B (limit 65536 B): OK
+  {"ram": {"companion": 103032, "baseline": 103012, "delta": 20, "limit": 8192, "ok": true}, "flash": {"companion": 545720, "baseline": 544520, "delta": 1200, "limit": 65536, "ok": true}}
+  pipico-budget: OK
+
+CI runner build (run 37685884106, same SHAs, path
+/home/runner/work/pico-fido/pico-fido/build/arm-pipico):
+
+  pipico-budget: companion build:  .data=7584 .bss=95448 .text=430348 .rodata=107740
+  pipico-budget: baseline build:   .data=7584 .bss=95428 .text=429156 .rodata=107740
+  pipico-budget: static RAM (.data+.bss) delta: 20 B (limit 8192 B): OK
+  pipico-budget: linked flash (.text+.rodata+.data) delta: 1192 B (limit 65536 B): OK
+  {"ram": {"companion": 103032, "baseline": 103012, "delta": 20, "limit": 8192, "ok": true}, "flash": {"companion": 545672, "baseline": 544480, "delta": 1192, "limit": 65536, "ok": true}}
+  pipico-budget: OK
+
+Reading the numbers:
+
+- static RAM delta: exactly 20 B in every build (path-independent; .data
+  and .bss hold no path strings). This matches the M3 canonical fresh
+  evidence (20 B RAM).
+- linked flash delta: 1200 B in the two local fresh clones (= the M3
+  canonical 1200 B) and 1192 B on the CI runner. The small variance has
+  the same cause as the non-reproducible hashes (reproducibility.md):
+  error-diagnostic strings embed the absolute source path, so the
+  string-constant sizes in .rodata scale with the build-path length
+  (rb1/rb2 paths are the same length; the CI runner path is 28 bytes
+  shorter). Every observed value is within roughly 0.02% of the 65536 B
+  limit; the gate passed in every case.
