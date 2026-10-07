@@ -108,11 +108,12 @@ Steps:
    `SYS_CLK_HZ=125000000` and a `48000000` Hz USB clock; no `SYS_CLK_*`
    override in any TU).
 2. Plug the board into the test host and wait 5 s.
-3. Run `fido2-token -L` (libfido2) or `pipico doctor` with the USB check, or
-   open `chrome://settings/securityKeys` in Chrome — any of these lists the
-   device.
-4. Send a CTAPHID ping/getInfo round: `fido2-token -I <device>` (or `pipico
-   doctor`), which must answer within 2 s.
+3. Run `fido2-token -L` (libfido2) or open `chrome://settings/securityKeys`
+   in Chrome — any of these lists the device. (`pipico doctor` is not used
+   here: it is not a CTAP client — its optional USB check only reads the
+   OS device list and never talks to the authenticator.)
+4. Send a CTAPHID ping/getInfo round: `fido2-token -I <device>`, which must
+   answer within 2 s.
 5. Repeat steps 2–4 on two more cold boots, and once each on a second host
    OS if available.
 6. Leave the board idle and connected for 10 minutes, then repeat the getInfo
@@ -334,10 +335,13 @@ Steps:
 
 1. With the screen unlocked and permissions granted, press F16 (or run
    `pipico lock`). The session must lock immediately.
-2. Verify independence from the screensaver password-delay setting: set
-   "Require password after" to a delay (for example 1 hour or "Never" where
-   available), unlock, and press F16 again. The session must still lock
-   immediately: the lock keystroke does not rely on the screensaver locking.
+2. Note the **existing** "Require password after" value in System Settings >
+   Lock Screen (do not change it), unlock, and press F16 again. The session
+   must still lock immediately under whatever password-delay setting is
+   already in effect: the lock keystroke does not rely on the screensaver
+   locking. Optionally repeat on a second test account whose existing
+   setting differs. Pipico never changes authentication, screensaver or
+   power settings — this gate only observes what is already set.
 3. Revoke both permissions (Automation and Accessibility for the host app),
    unlock, and press F16 again. The command must exit nonzero with one clear
    error naming both permission panes, attempt no fallback (no
