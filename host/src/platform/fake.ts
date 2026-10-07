@@ -11,9 +11,10 @@
  * - PIPICO_FAKE_FAIL=<op>: makes that operation fail before recording it.
  */
 import { appendFileSync, writeFileSync } from 'node:fs';
+import { agentArgv } from '../agents.ts';
 import { FakePlatformError, type Platform } from './index.ts';
 
-export type FakeOp = 'openApp' | 'openUrl' | 'choose' | 'lock';
+export type FakeOp = 'openApp' | 'openUrl' | 'choose' | 'lock' | 'launchAgent';
 
 export interface FakeCall {
   op: FakeOp;
@@ -22,6 +23,9 @@ export interface FakeCall {
   url?: string;
   prompt?: string;
   options?: string[];
+  agent?: string;
+  argv?: string[];
+  cwd?: string;
 }
 
 export class FakePlatform implements Platform {
@@ -75,6 +79,13 @@ export class FakePlatform implements Platform {
   async lock(): Promise<void> {
     this.failIfForced('lock');
     this.record({ op: 'lock' });
+  }
+
+  async launchAgent(agent: string, cwd: string): Promise<void> {
+    this.failIfForced('launchAgent');
+    // Record the exact fixed argv the real platform would run, so tests can
+    // assert that no auto-approve flag is ever present.
+    this.record({ op: 'launchAgent', agent, argv: [...agentArgv(agent)], cwd });
   }
 
   private failIfForced(op: FakeOp): void {

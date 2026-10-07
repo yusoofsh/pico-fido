@@ -21,8 +21,13 @@ export interface Platform {
   openUrl(url: string): Promise<void>;
   /** Show a chooser; resolves with the picked option id, or null on cancel. */
   choose(prompt: string, options: string[]): Promise<string | null>;
-  /** The native lock action. Never unlocks and never changes auth settings. */
+  /** The native lock action. Never reverses a lock and never changes auth settings. */
   lock(): Promise<void>;
+  /**
+   * Launch an allowlisted agent (by name; fixed argv from src/agents.ts)
+   * with the given validated directory as its working directory.
+   */
+  launchAgent(agent: string, cwd: string): Promise<void>;
 }
 
 /** Thrown by the real platform on non-macOS hosts. */
