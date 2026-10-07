@@ -18,7 +18,7 @@ describe('run(): argv arrays, never a shell', () => {
   });
 
   it('reports argv verbatim through a child that prints its argv as JSON', async () => {
-    const script = 'console.log(JSON.stringify(Bun.argv.slice(2)))';
+    const script = 'console.log(JSON.stringify(Bun.argv.slice(1)))';
     const r = await run([process.execPath, '-e', script, INJECTION, 'second arg'], {
       timeoutMs: 10_000,
     });

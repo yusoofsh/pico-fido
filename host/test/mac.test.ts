@@ -78,7 +78,8 @@ describe('MacPlatform.choose with an injected spawner', () => {
     } catch (e) {
       message = (e as Error).message;
     }
-    expect(message).toContain('chooser failed');
+    expect(message).toContain('choose: failed');
+    expect(message).toContain('exit 1');
     expect(message.split('\n')).toHaveLength(1);
   });
 

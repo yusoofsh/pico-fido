@@ -63,8 +63,11 @@ describe('incident: local scaffold + monitoring opens (VAL-HOST-021)', () => {
 
   it('creates nothing outside the notes root', async () => {
     const home = incidentHome();
+    // The fake log (created at platform construction) lives outside home so
+    // the before/after comparison sees only pipico's own file effects.
+    const log = joinLog();
     const before = snapshotDir(home);
-    const r = await runCli(['incident'], env(home));
+    const r = await runCli(['incident'], env(home, { PIPICO_FAKE_LOG: log }));
     expect(r.code).toBe(0);
     const after = snapshotDir(home);
     const beforeLines = new Set(before.split('\n'));
@@ -133,11 +136,19 @@ describe('incident: no env/history/clipboard capture (VAL-HOST-023)', () => {
 describe('incident: dry run', () => {
   it('prints the plan and changes nothing', async () => {
     const home = incidentHome();
+    const log = joinLog();
     const before = snapshotDir(home);
-    const r = await runCli(['incident', '--dry-run'], env(home));
+    const r = await runCli(['incident', '--dry-run'], env(home, { PIPICO_FAKE_LOG: log }));
     expect(r.code).toBe(0);
     expect(r.stdout).toContain(join(home, 'notes'));
     expect(snapshotDir(home)).toBe(before);
-    expect(readLogLines(logPath(home))).toEqual([]);
+    expect(readLogLines(log)).toEqual([]);
   });
 });
+
+/** A log path OUTSIDE any temp home, so home snapshots stay clean. */
+let logCounter = 0;
+function joinLog(): string {
+  logCounter += 1;
+  return join(makeTempHome(), `fake-${logCounter}.log`);
+}

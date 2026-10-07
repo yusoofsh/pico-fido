@@ -39,12 +39,13 @@ describe('study: opens only configured URLs (VAL-HOST-024)', () => {
   it('dry run prints the plan and records nothing', async () => {
     const home = makeTempHome();
     writeDefaultConfig(home);
+    const log = join(makeTempHome(), 'fake.log'); // outside home: snapshots stay clean
     const before = snapshotDir(home);
-    const r = await runCli(['study', '--dry-run'], fakeEnv(home));
+    const r = await runCli(['study', '--dry-run'], fakeEnv(home, { PIPICO_FAKE_LOG: log }));
     expect(r.code).toBe(0);
     expect(r.stdout).toContain('https://course.example/lesson-1');
     expect(snapshotDir(home)).toBe(before);
-    expect(readLogLines(logPath(home))).toEqual([]);
+    expect(readLogLines(log)).toEqual([]);
   });
 });
 

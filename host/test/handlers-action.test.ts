@@ -68,11 +68,12 @@ describe('action: cancel does nothing (VAL-HOST-018)', () => {
   it('exits 0 with the chooser call and no open, lock or agent call', async () => {
     const home = makeTempHome();
     writeDefaultConfig(home);
+    const log = join(makeTempHome(), 'fake.log'); // outside home: snapshots stay clean
     const before = snapshotDir(home);
-    const env = fakeEnv(home, { PIPICO_FAKE_CHOICE: 'cancel' });
+    const env = fakeEnv(home, { PIPICO_FAKE_LOG: log, PIPICO_FAKE_CHOICE: 'cancel' });
     const r = await runCli(['action'], env);
     expect(r.code).toBe(0);
-    expect(readLogLines(logPath(home))).toEqual([
+    expect(readLogLines(log)).toEqual([
       { op: 'choose', prompt: expect.any(String), options: ['devops', 'study'] },
     ]);
     expect(snapshotDir(home)).toBe(before);
