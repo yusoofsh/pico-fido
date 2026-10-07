@@ -12,7 +12,12 @@ sit on top — see the push receipts below), SDK
 `pipico/companion-hooks` @ `3201dbd0e6972a97510c08d21d1386de130c62e2`
 (contains `pipico/storage-baseline` @ `a1eb8cf541bae2575985e1b18fb97ced670193bb`
 as an ancestor). Layout ID: `yd4m-effective2m-marker-gap-v1` (see
-`LAYOUT.md`).
+`LAYOUT.md`). This file was refreshed through the release corrections on
+**2026-10-07**: the newest published heads are root `0e74670…` (run
+`37693278603`) and SDK `654fbda…` (run `37685874677`), and the
+documentation-correction round adds a local gitlink bump to SDK
+`e96e502…` (see the push receipts and `HANDOFF.md`; the source-tuple table
+below records the M5-refresh observation).
 
 ## OBSERVED: source tuple
 
@@ -134,9 +139,11 @@ Every push of the mission branches after the M1 publications above, in
 chronological order. All were fast-forward pushes (SDK first, then root; no
 force-push; `main` and `fix/*` never written). Every SHA below was verified
 to exist with `git cat-file -e <sha>^{commit}` in the SDK or root clone
-during this refresh (25/25 resolve). CI conclusions were observed with
-`gh run list`; the SDK CI workflow is `pipico-sdk-tests`. No root workflow
-existed before M5, so early root pushes name none.
+during the 2026-10-07 correction refresh (36/36 resolve: 13 SDK-side, 23
+root-side, counting the full SHAs the abbreviated ranges expand to). CI
+conclusions were observed with `gh run list`; the SDK CI workflow is
+`pipico-sdk-tests`. No root workflow existed before M5, so early root
+pushes name none.
 
 | When (UTC) | Feature | Branch and push range (old..new) | CI run |
 |---|---|---|---|
@@ -166,35 +173,44 @@ existed before M5, so early root pushes name none.
 | 2026-10-07 | m5-release-evidence-and-repro | root `pipico/integration-v1` `b31a8ab…5ba8b086972ebe931c74352e8930b9f19a71dd87` (release-evidence docs commits `6499200` bundle + `5ba8b08` manifest/handoff refresh) | `37687857080` success on `5ba8b08…` |
 | 2026-10-07 | m5-push-ci-and-draft-prs | root `pipico/integration-v1` `5ba8b08…aa09cf4f28ea63d909bf86bf780d6f4c857f1c6b` (workflow commit `6def65d` upload the bin + `aa09cf4` receipt row) | `37690147169` success on `aa09cf4…` |
 | 2026-10-07 | m5-push-ci-and-draft-prs | root `pipico/integration-v1` `aa09cf4…5e250a559f8b7436cef8be8af9644e257e72d649` (draft-PR + final documentation commits) | `37691662474` success on `5e250a5…` (push event; the draft PRs also ran the same workflow on the PR event, success) |
+| 2026-10-07 | m5-push-ci-and-draft-prs | root `pipico/integration-v1` `5e250a5…0e74670d0965662563f1bfcb1811834568acde27` (final-head run + pre-existing-upstream-PR docs) | `37693278603` success on `0e74670…` |
 
-(The release-evidence docs commits pushed after `b31a8ab…` are named in
-`HANDOFF.md` and `docs/pipico/release/`; they are documentation-only and
-change no build input. Their push receipt row above was appended by the
-final publication feature once the run was observed, as every row above
-was. A commit cannot contain the run id of its own push, so each
-publication push's receipt row is appended by the following commit; the
-receipts for the final publication pushes (the draft-PR and final
-documentation commits of `m5-push-ci-and-draft-prs`) are recorded in the
-mission publication record.)
+(Every push's receipt row is appended by a later commit — a commit cannot
+contain the run id of its own push. The terminal push `5e250a5…0e74670…`
+above is recorded by this documentation commit; until that row existed it
+lived only in the mission publication record. The receipt for the push of
+the current documentation-correction commits will likewise be appended by
+the next publication feature and is kept in the mission publication record
+(`library/publication-state.md`) meanwhile.)
 
 Notes:
 
-- The final root CI run observed so far is `37691662474` (workflow
+- The final root CI push run observed so far is `37693278603` (workflow
   `pipico.yml`, branch `pipico/integration-v1`, push event, head
-  `5e250a559f8b7436cef8be8af9644e257e72d649`): it concluded success with
-  the release-evidence artifact (which contains `pico_fido.bin`); its
-  receipts showed root host ctest 67/67, pytest 348 passed / 3 skipped /
-  0 failed / 0 errors plus the single deselected vault test (junit
-  receipt: 348 + 3 + 1 testcases), `bun test` 315 pass / 0 fail, bounds
-  self-test 17/17 and the budget gate OK (RAM +20 B / 8192, flash +1192 B
-  / 65536). The earlier runs `37682443999` (head `5833bc2…`),
-  `37685884106` (head `b31a8ab…`), `37687857080` (head `5ba8b08…`) and
-  `37690147169` (head `aa09cf4…`) were green with byte-identical
-  firmware artifacts (each artifact downloaded; hashes re-verified). The
-  release bundle built from `b31a8ab…` lives in `docs/pipico/release/`.
+  `0e74670d0965662563f1bfcb1811834568acde27`): it concluded **success**
+  (re-verified this session with `gh run view`; its artifact was
+  downloaded and re-hashed in the same session — `uf2` `cfbaa430…`,
+  `elf` `5e872a1c…`, `bin` `ce8b8be4…`, all equal to the recorded values,
+  and its receipts show root host ctest 67/67, junit `tests=371`
+  `failures=0` `errors=0` `skipped=3`, `bun test` 315 pass / 0 fail).
+  Its artifact `manifest.txt` records `root-sha: 0e74670…` and
+  `sdk-gitlink: 654fbda…`. The earlier runs `37682443999` (head
+  `5833bc2…`), `37685884106` (head `b31a8ab…`), `37687857080` (head
+  `5ba8b08…`), `37690147169` (head `aa09cf4…`) and `37691662474` (head
+  `5e250a5…`) were green with byte-identical firmware artifacts (each
+  artifact downloaded; hashes re-verified; the `.bin` was manifest-only
+  before run `37690147169`). All of these runs built on the same UTC date
+  (2026-10-07); the image embeds the compiler build date (`__DATE__`), so
+  the equality is a same-date observation, not a reproducibility
+  guarantee (`docs/pipico/release/reproducibility.md`).
+  The release bundle built from `b31a8ab…` lives in `docs/pipico/release/`.
 - The last SDK CI observation is run `37685874677` (success) on
   `pipico/companion-hooks` @ `654fbda…` (a README-only commit on top of
-  `3201dbd…`), the exact gitlink of the root head above.
+  `3201dbd…`), the exact gitlink of root `0e74670…`. The documentation-
+  correction round bumps the root gitlink to the next README-only SDK
+  commit `e96e50208d6dcc78baa69c52de1e3340fd17749b`; its publication
+  (SDK first, CI observed, then the root push) belongs to the final
+  publication feature, which records the receipt.
 - Docs-only commits pushed after a built/cited SHA are named in
   `HANDOFF.md`; they change no build input.
 

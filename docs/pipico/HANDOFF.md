@@ -61,8 +61,11 @@ software levels stand on the final tuple too.
   documentation-correction commits: `6218308` (a gitlink-only bump to SDK
   `e96e50208d6dcc78baa69c52de1e3340fd17749b`, a README-only SDK commit on
   top of `654fbda…` that changes no compiled input), `9e0ff77` and
-  `7f02b07` (checklist/README corrections, docs-only) — and this
-  documentation commit, which completes the enumeration; its eventual SHA
+  `7f02b07` (checklist/README corrections, docs-only), `d0d8d9d`
+  (bin-provenance and build-date corrections in the release bundle,
+  docs-only) and `bd0d5ad` (API-disabled workflow states and the date
+  caveat, docs-only) — and this documentation commit, which completes the
+  enumeration; its eventual SHA
   and the final successful run are recorded in the mission publication
   record (a commit cannot contain the run id of its own push). The
   published push of this branch ended at `0e74670…` with green run
@@ -80,8 +83,14 @@ software levels stand on the final tuple too.
   successful push run remains the authoritative final tuple.
 - **SDK SHA**: `654fbda1046c0dba3832ff520f7d1ea25d1df45b` (head of
   `pipico/companion-hooks`, CI run `37685874677` green on it; a README-only
-  commit on top of `3201dbd0e6972a97510c08d21d1386de130c62e2`); the root
-  gitlink points there, and the fresh-clone builds resolved exactly it.
+  commit on top of `3201dbd0e6972a97510c08d21d1386de130c62e2`) was the
+  gitlink of the published root heads through `0e74670…`. The
+  documentation-correction round adds one more README-only SDK commit,
+  `e96e50208d6dcc78baa69c52de1e3340fd17749b` (host-test preclone
+  instructions, publication order, two-checkout note), and bumps the root
+  gitlink to it (`6218308`); publishing that SDK commit first, observing
+  its CI run and pushing the root branch belong to the final publication
+  feature. The fresh-clone builds resolved `654fbda…` exactly.
   `pipico/storage-baseline` remains a separate remote branch at
   `a1eb8cf541bae2575985e1b18fb97ced670193bb`; it is an **ancestor** of
   the tested `pipico/companion-hooks` head (`git merge-base
