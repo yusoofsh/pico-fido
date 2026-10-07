@@ -122,7 +122,11 @@ jobs:
           # the installed fido2/hid modules, exactly like the local venv setup
           hid_dir=$(python3 -c 'import fido2, os; print(os.path.join(os.path.dirname(fido2.__file__), "hid"))')
           cp tests/docker/fido2/*.py "$hid_dir"/
-          sudo systemctl restart pcscd
+          # polkit denies pyscard clients on the runner (SCARD_E_NO_ACCESS);
+          # the mission-standard pcscd runs with polkit disabled, outside
+          # socket activation
+          sudo systemctl stop pcscd.socket pcscd.service
+          sudo /usr/sbin/pcscd -f --disable-polkit &
           sleep 2
           pgrep -x pcscd
           PIPICO_EMULATOR="$PWD/emu/pico_fido" PIPICO_EMU_RUN_DIR="$RUNNER_TEMP/emu-run" PYTEST=pytest \
