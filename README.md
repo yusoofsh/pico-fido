@@ -87,10 +87,13 @@ re-enrollment, not a migration.
 ### Build (one command)
 
 Prerequisites and pins: Arm GNU Toolchain 13.2.Rel1
-(`arm-none-eabi-gcc 13.2.1 20231009`), Pico SDK 2.3.1 (`079c6f39`, TinyUSB
-`86ad6e56`), picotool 2.3.1, CMake + Ninja; the build clones mbedtls 3.6.7
-and tinycbor 0.6.1 at configure time (network needed once). The Pipico
-preset builds for `PICO_BOARD=vcc-gnd_yd-rp2040_4m` with
+(`arm-none-eabi-gcc 13.2.1 20231009`), CMake and Ninja on `PATH`; Pico SDK
+2.3.1 (`079c6f39`, TinyUSB `86ad6e56`) and a standalone picotool 2.3.1
+build. **Both `PICO_SDK_PATH` and `PICOTOOL_DIR` must be set**
+(`PICOTOOL_DIR` is the directory holding the `picotool` binary and its CMake
+package config); `build.sh` exits nonzero without either. The build clones
+mbedtls 3.6.7 and tinycbor 0.6.1 at configure time (network needed once).
+The Pipico preset builds for `PICO_BOARD=vcc-gnd_yd-rp2040_4m` with
 `PICO_USE_FASTEST_SUPPORTED_CLOCK=0`, `PICO_FLASH_SIZE_LIMIT_BYTES=0x200000`,
 `FORCE_BUTTON_WAIT=ON`, `ENABLE_OATH_APP=ON`, `ENABLE_OTP_APP=ON`; the USB
 product string is "Yusoofs Pipico".
@@ -98,27 +101,46 @@ product string is "Yusoofs Pipico".
 ```sh
 git clone --recurse-submodules -b pipico/integration-v1 https://github.com/yusoofsh/pico-fido
 cd pico-fido
-PICO_SDK_PATH=/path/to/pico-sdk/2.3.1 scripts/pipico/build.sh
+PICO_SDK_PATH=/path/to/pico-sdk/2.3.1 \
+PICOTOOL_DIR=/path/to/picotool/picotool \
+PATH=/path/to/arm-gnu-toolchain-13.2.Rel1-x86_64-arm-none-eabi/bin:$PATH \
+  scripts/pipico/build.sh
 ```
 
 `build.sh` honours `PIPICO_BUILD_DIR` (default `build-pipico`), passes extra
 arguments through to CMake, exports `compile_commands.json`, and **exits
 nonzero on any CMake/compiler warning or failed gate**. Gates: image bounds
-(every write below the 2 MiB code limit), clocks (125 MHz system, 48 MHz
-USB) and the companion budget (≤ 8 KiB static RAM, ≤ 64 KiB flash).
+(every write end at or below the **1 MiB code boundary**, offset `0x100000`
+from XIP_BASE), clocks (125 MHz system, 48 MHz USB) and the companion
+budget (≤ 8 KiB static RAM, ≤ 64 KiB flash). `PICO_FLASH_SIZE_LIMIT_BYTES=
+0x200000` is the **effective flash cap** (2 MiB), not the code limit, and it
+says nothing about the board's physical flash size.
 
 ### Tests
 
-- **SDK host tests**: in `pico-keys-sdk/`, `cmake -S tests -B build-tests -G
-  Ninja && ninja -C build-tests && ctest --test-dir build-tests
-  --output-on-failure` (configures mbedtls 3.6.7 into `third-party/` first).
+- **SDK host tests**: in `pico-keys-sdk/`, clone the pinned mbedtls v3.6.7
+  first — the test configure does **not** clone it (`git clone -q --depth 1
+  -b v3.6.7 https://github.com/Mbed-TLS/mbedtls.git third-party/mbedtls`,
+  pinned `068ff080`) — then `cmake -S tests -B build-tests -G Ninja && ninja
+  -C build-tests && ctest --test-dir build-tests --output-on-failure`.
 - **Root host tests**: configure an emulation build (`cmake -S . -B
   build-emu -G Ninja -DENABLE_EMULATION=1 -DFORCE_BUTTON_WAIT=ON && ninja -C
   build-emu`) and run `ctest --test-dir build-emu --output-on-failure`.
-- **Emulation pytest suite** (needs the emulator on TCP 35962/35963 and
-  pcscd): `scripts/pipico/run-emu-tests.sh` starts both, runs the upstream
-  python-fido2 suite plus `tests/pipico/`, deselecting only the vault test
-  that needs CI secrets, and stops everything.
+- **Emulation pytest suite** (the emulator listens on TCP 35962/35963; the
+  CCID tests talk through pcscd with the vpcd virtual-reader driver, which
+  must be installed for pcscd): build the emulator as above (`build-emu`).
+  Start pcscd explicitly and stop it by its own PID — `run-emu-tests.sh`
+  starts and stops only the emulator:
+  `setsid sudo -n /usr/sbin/pcscd -f --disable-polkit &` (find it with
+  `pgrep -x pcscd`, stop with `sudo -n kill <pid>`). Then run
+  `PIPICO_EMULATOR=build-emu/pico_fido PYTEST=/path/to/pytest
+  scripts/pipico/run-emu-tests.sh`: it starts the emulator with a fresh
+  `memory.flash`, runs the upstream python-fido2 suite plus `tests/pipico/`
+  (deselecting only the vault test that needs CI secrets) and stops the
+  emulator by its PID. `PIPICO_EMULATOR` must match the build directory used
+  above (the script's default is `build/pico_fido`); `PYTEST` must point at
+  a `pytest` whose Python has the `fido2` package installed (plain `pytest`
+  on `PATH` where that is already set up).
 - **Host CLI**: in `host/`, `bun test` and `bunx tsc --noEmit`.
 
 `HARDWARE-TESTS.md` is the checklist for the board and Mac checks (G1,
