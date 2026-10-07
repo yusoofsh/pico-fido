@@ -112,6 +112,10 @@ Scope and limits, stated plainly:
   F14 → `pipico attention`, F15 → `pipico incident`, F16 → `pipico lock` in
   `host/src/bindings.ts`, `host/README.md`, the root `README.md` Pipico
   section and `HARDWARE-TESTS.md`.
+- Flash layout ID **`yd4m-effective2m-marker-gap-v1`** for this build: code
+  ends below `0x100000`, marker sector `[0x100000,0x101000)`, data
+  `[0x101000,0x200000)`, `[0x200000,0x400000)` unused (same values as
+  `LAYOUT.md` and the manifest).
 - The host CLI never talks to the authenticator: `host/src` contains no
   CTAP/HID/APDU/PCSC code; its only USB interaction is the read-only,
   informational presence check of the product string. See `host/README.md`
