@@ -6,10 +6,12 @@
  *
  * - openUrl:    /usr/bin/open <url>
  * - openApp:    /usr/bin/open -a <appId> [<path>]
- * - lock:       /usr/bin/open /System/Library/CoreServices/ScreenSaverEngine.app
- *               (starting the screen saver locks the workstation under the
- *               user's own existing settings; this platform never changes
- *               any setting and never reverses a lock)
+ * - lock:       /usr/bin/osascript -e <LOCK_SCRIPT>
+ *               One static AppleScript that sends Apple's documented
+ *               Control-Command-Q "Lock Screen" shortcut through System
+ *               Events. This locks the session immediately and does not
+ *               depend on any screensaver or password-delay setting; pipico
+ *               never changes any setting and never reverses a lock.
  * - launchAgent: the fixed allowlisted argv from src/agents.ts
  * - choose:     /usr/bin/osascript -e <static script> <prompt> <options...>
  *
@@ -32,11 +34,22 @@ export type { SpawnFn };
 
 export const OPEN_BIN = '/usr/bin/open';
 export const OSASCRIPT_BIN = '/usr/bin/osascript';
-/** Starting the screen saver is the native lock action; one fixed argv. */
-export const LOCK_TARGET = '/System/Library/CoreServices/ScreenSaverEngine.app';
+
+/**
+ * The one fixed native lock operation: a static AppleScript that sends
+ * Apple's documented Control-Command-Q "Lock Screen" shortcut through
+ * System Events. The keystroke locks the session immediately, independent
+ * of any screensaver or password-delay setting. The text is a source
+ * constant: no config or user data is ever interpolated, and there is no
+ * screensaver fallback.
+ */
+export const LOCK_SCRIPT =
+  'tell application "System Events" to keystroke "q" using {command down, control down}';
 
 /** Long enough for `open` to hand off to LaunchServices; still finite. */
 export const OPEN_TIMEOUT_MS = 15_000;
+/** Long enough for a first-use permission dialog to be answered; still finite. */
+export const LOCK_TIMEOUT_MS = 60_000;
 /** The chooser dialog waits for the user; the bound must still be finite. */
 export const CHOOSER_TIMEOUT_MS = 300_000;
 /** pipico waits for the agent to exit; hard stop after six hours. */
@@ -62,6 +75,30 @@ end run`;
 
 /** Control characters never travel into an osascript dialog. */
 const CONTROL_FREE = /^[^\u0000-\u001f\u007f]*$/;
+
+/**
+ * What osascript prints when macOS refuses the lock keystroke because the
+ * Automation (control System Events) or Accessibility (send keystrokes)
+ * permission was not granted. Matched case-insensitively against the
+ * child's first output line.
+ */
+const LOCK_PERMISSION_PATTERN =
+  /not allowed assistive access|not allowed to send keystrokes|user authorization failed|not authorized|assistive access/i;
+
+/**
+ * One clear, actionable line for a refused lock keystroke. It names the
+ * exact permission to grant and states that nothing fell back and nothing
+ * was changed. Detail is already single-line; it is echoed safely.
+ */
+function lockPermissionLine(code: number, detail: string): string {
+  return (
+    `lock: macOS denied permission to send the lock keystroke (exit ${code}: ${echoSafe(detail)}). ` +
+    'Grant the app that runs pipico permission to control System Events: ' +
+    'System Settings > Privacy & Security > Accessibility, and ' +
+    'System Settings > Privacy & Security > Automation for the host app. ' +
+    'Nothing was locked, no fallback was attempted and no setting was changed.'
+  );
+}
 
 export class MacPlatform implements Platform {
   readonly name = 'mac';
@@ -133,7 +170,24 @@ export class MacPlatform implements Platform {
 
   async lock(): Promise<void> {
     this.requireMac('lock');
-    await this.runChecked([OPEN_BIN, LOCK_TARGET], { timeoutMs: OPEN_TIMEOUT_MS }, 'lock');
+    // One fixed static AppleScript through osascript: Control-Command-Q via
+    // System Events. No screensaver, no fallback: whatever happens, exactly
+    // one spawn is attempted and its failure is surfaced.
+    let result: RunResult;
+    try {
+      result = await this.spawnFn([OSASCRIPT_BIN, '-e', LOCK_SCRIPT], { timeoutMs: LOCK_TIMEOUT_MS });
+    } catch (e) {
+      // Timeout or the child could not start: keep the runner's single-line
+      // message, scoped to the lock operation.
+      throw new Error(`lock: ${firstLine(e instanceof Error ? e.message : String(e))}`);
+    }
+    if (result.code !== 0) {
+      const detail = firstLine(result.stderr) || firstLine(result.stdout) || `(exit ${result.code})`;
+      if (LOCK_PERMISSION_PATTERN.test(detail)) {
+        throw new Error(lockPermissionLine(result.code, detail));
+      }
+      throw new Error(`lock: failed (exit ${result.code}): ${echoSafe(detail)}`);
+    }
   }
 
   async launchAgent(agent: string, cwd: string): Promise<void> {
