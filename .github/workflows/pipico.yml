@@ -157,7 +157,8 @@ jobs:
           art="$PWD/pipico-release-evidence"
           mkdir -p "$art/receipts"
           cp build/arm-pipico/pico_fido.uf2 build/arm-pipico/pico_fido.elf \
-             build/arm-pipico/pico_fido.elf.map build/arm-pipico/pipico-build-tuple.txt "$art/"
+             build/arm-pipico/pico_fido.bin build/arm-pipico/pico_fido.elf.map \
+             build/arm-pipico/pipico-build-tuple.txt "$art/"
           python3 scripts/pipico/check-clock.py build/arm-pipico > "$art/clock-report.txt"
           python3 scripts/pipico/check-image-bounds.py build/arm-pipico > "$art/image-bounds-report.json"
           PIPICO_BUILD_DIR="$PWD/build/arm-pipico" PIPICO_BASELINE_BUILD_DIR="$PWD/build/arm-pipico-nocompanion" \
