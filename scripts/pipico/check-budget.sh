@@ -55,9 +55,9 @@ run_gate() {
   local on_elf="$build_dir/pico_fido.elf" off_elf="$baseline_dir/pico_fido.elf"
   [ -f "$on_elf" ] || fail "companion build not found ($on_elf); run build.sh first"
   if [ ! -f "$off_elf" ]; then
-    local log="$baseline_dir.build.log"
-    echo "pipico-budget: building the PIPICO_COMPANION=OFF baseline in $baseline_dir"
     mkdir -p -- "$baseline_dir"
+    local log="$baseline_dir/pipico-baseline-build.log"
+    echo "pipico-budget: building the PIPICO_COMPANION=OFF baseline in $baseline_dir"
     PIPICO_BUILD_DIR="$baseline_dir" bash "$script_dir/build.sh" -DPIPICO_COMPANION=OFF >"$log" 2>&1 \
       || { tail -20 "$log" >&2; fail "baseline build failed (log: $log)"; }
   fi
