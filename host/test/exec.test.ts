@@ -16,13 +16,15 @@ import { run } from '../src/exec.ts';
 
 const INJECTION = '"; touch /tmp/pwn-x #';
 
-/** Process state from /proc: null when the PID is gone. */
-function procInfo(pid: number): { state: string; comm: string; fd1: string } | null {
+/** Process facts from /proc: null when the PID is gone. */
+function procInfo(pid: number): { state: string; ppid: number; comm: string; fd1: string } | null {
   try {
     const stat = readFileSync(`/proc/${pid}/stat`, 'utf8');
-    // comm is in parentheses and may contain spaces; state follows the last ')'.
+    // comm is in parentheses and may contain spaces; state and ppid follow the last ')'.
     const close = stat.lastIndexOf(')');
-    const state = stat.slice(close + 2).trim().split(' ')[0] ?? '?';
+    const fields = stat.slice(close + 2).trim().split(' ');
+    const state = fields[0] ?? '?';
+    const ppid = Number(fields[1] ?? -1);
     const comm = stat.slice(stat.indexOf('(') + 1, close);
     let fd1 = '';
     try {
@@ -30,7 +32,7 @@ function procInfo(pid: number): { state: string; comm: string; fd1: string } | n
     } catch {
       fd1 = 'unreadable';
     }
-    return { state, comm, fd1 };
+    return { state, ppid, comm, fd1 };
   } catch {
     return null;
   }
@@ -39,16 +41,6 @@ function procInfo(pid: number): { state: string; comm: string; fd1: string } | n
 function isAlive(pid: number): boolean {
   const info = procInfo(pid);
   return info !== null && info.state !== 'Z';
-}
-
-/** Poll until the process is gone or a zombie (terminated, holds no fds); bounded. */
-async function waitDead(pid: number, ms: number): Promise<boolean> {
-  const deadline = Date.now() + ms;
-  for (;;) {
-    if (!isAlive(pid)) return true;
-    if (Date.now() > deadline) return false;
-    await new Promise((r) => setTimeout(r, 25));
-  }
 }
 
 /** PIDs recorded by the probe child; killed in a finally path. */
@@ -152,6 +144,8 @@ describe('run(): bounded timeout', () => {
 
     let childPid = 0;
     let helperPid = 0;
+    let helperAtDeadline: ReturnType<typeof procInfo> = null;
+    let childDied = false;
     const started = Date.now();
     let caught: unknown;
     try {
@@ -162,7 +156,9 @@ describe('run(): bounded timeout', () => {
     } catch (e) {
       caught = e;
     } finally {
-      // Read the PIDs the probe recorded and stop the helper by PID.
+      // Read the PIDs the probe recorded. The helper's /proc evidence is
+      // captured before the cleanup kill (a killed helper has no /proc fds),
+      // and the child-death check below also runs before that kill.
       try {
         const lines = readFileSync(evidence, 'utf8').trim().split('\n');
         for (const line of lines) {
@@ -173,6 +169,23 @@ describe('run(): bounded timeout', () => {
       } catch {
         // The probe never got far enough to write evidence.
       }
+      if (helperPid > 0) helperAtDeadline = procInfo(helperPid);
+      // Direct-child kill evidence that survives PID reuse: the helper is
+      // the direct child's child, so its ppid can only move off the child's
+      // PID when the child dies (the kernel reparents it). Bounded poll.
+      if (helperPid > 0 && childPid > 0) {
+        const pollUntil = Date.now() + 2_000;
+        for (;;) {
+          const ppid = procInfo(helperPid)?.ppid;
+          if (ppid === undefined || ppid !== childPid) {
+            childDied = true;
+            break;
+          }
+          if (Date.now() > pollUntil) break;
+          await new Promise((r) => setTimeout(r, 25));
+        }
+      }
+      // Cleanup: stop the helper (and, defensively, the child) by PID.
       probePids.push(...[childPid, helperPid].filter((p) => p > 0));
       for (const pid of [childPid, helperPid]) {
         if (pid > 0 && isAlive(pid)) {
@@ -183,8 +196,6 @@ describe('run(): bounded timeout', () => {
           }
         }
       }
-      if (helperPid > 0) await waitDead(helperPid, 2_000);
-      if (childPid > 0) await waitDead(childPid, 2_000);
     }
     const elapsed = Date.now() - started;
 
@@ -194,19 +205,18 @@ describe('run(): bounded timeout', () => {
     expect(caught).toBeInstanceOf(Error);
     expect((caught as Error).message).toContain('timeout');
     // ...under a generous 5 s return ceiling, long before the helper's
-    // 30 s pipe EOF. (The test timeout is 40 s only so a regression shows
-    // the true elapsed time instead of aborting the test harness.)
+    // 30 s pipe EOF. (The 40 s test timeout exists only so a regression
+    // shows the true elapsed time instead of aborting the harness.)
     expect(elapsed).toBeLessThan(5_000);
-    // The direct child was SIGKILLed: gone or a reaped zombie.
-    expect(await waitDead(childPid, 2_000)).toBe(true);
-    // Evidence of the pipe inheritance the runner must survive: the helper
-    // is a sleep whose stdout is a pipe. (Checked while it is still alive;
-    // if it already exited on its own this only weakens the probe.)
-    const helperInfo = procInfo(helperPid);
-    if (helperInfo !== null) {
-      expect(helperInfo.comm).toBe('sleep');
-      expect(helperInfo.fd1).toContain('pipe');
-    }
+    // The helper was still alive at the deadline (a 30 s sleep), with an
+    // inherited IPC channel as its stdout — the EOF-holder the deadline
+    // must not wait for. Bun pipes subprocess output through a socketpair
+    // on Linux, hence socket (a pipe: target is equally valid).
+    expect(helperAtDeadline, 'helper still alive at the deadline').not.toBeNull();
+    expect(helperAtDeadline!.comm).toBe('sleep');
+    expect(helperAtDeadline!.fd1).toMatch(/^(pipe|socket):/);
+    // The direct child was SIGKILLed: its helper was reparented away from it.
+    expect(childDied, 'direct child was killed (helper reparented off its PID)').toBe(true);
   }, 40_000);
 });
 
