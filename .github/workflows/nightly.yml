@@ -10,6 +10,7 @@ permissions:
 
 jobs:
   nightly:
+    if: github.repository == 'polhenarejos/pico-fido'
     name: Deploy nightly
     permissions:
       contents: write
