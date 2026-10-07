@@ -145,8 +145,13 @@ every check instead of stopping at the first problem:
 - `usb:` OPTIONAL presence of the USB device named `Yusoofs Pipico`.
   Strictly informational — a not-found or skipped result never changes the
   exit code. On Linux it reads the sysfs device list (no root, no
-  subprocess); on macOS it runs one fixed `system_profiler SPUSBDataType`
-  argv (NOT_RUN in this mission — no Mac); anywhere else it reports
+  subprocess). On macOS the shipped `doctor` currently reports `skipped`
+  ("no spawner available"): it calls the check without a spawner, so no
+  subprocess runs and `system_profiler` is never executed. The optional
+  macOS helper (one fixed `/usr/sbin/system_profiler SPUSBDataType` argv
+  with a 10 s timeout, in `src/usb.ts`) exists and its argv shape is
+  test-covered through an injected spawner, but wiring it into the doctor
+  is a code change, not an option. Anywhere else the check reports
   `skipped`.
 
 ## Install and uninstall
@@ -399,14 +404,19 @@ Every spawn goes through the one runner in `src/exec.ts`:
   involved (no `shell` option is ever set), and the program path is always
   absolute.
 - Every spawn has a mandatory finite timeout, and the runner always settles
-  by it: at the deadline the direct child is SIGKILLed and the runner stops
-  reading the output pipes it owns, without waiting for their EOF. A helper
-  or grandchild that inherited those pipes can hold them open long after the
-  direct child is gone; the deadline never waits for that EOF. Descendants
-  are neither killed nor waited for (there is no process-tree killing), so
-  callers must not assume a descendant is terminated. Applied per call:
-  `open`-family calls 15 s, the osascript chooser 5 min (it waits for the
-  user), an agent launch 6 h (pipico waits for the agent to exit).
+  by it. The deadline covers **output completion, not just child exit**:
+  after the child exits, the runner still waits for the output pipes it
+  owns to reach EOF, so a normally exited child whose helper or grandchild
+  inherited those pipes can still produce a timeout. At the deadline the
+  direct child is SIGKILLed (a no-op if it already exited) and the runner
+  stops reading its pipes, without waiting for their EOF. Descendants are
+  neither killed nor waited for (there is no process-tree killing), so
+  callers must not assume a descendant is terminated or that a normally
+  exited child's pipes have drained. Applied per call: `open`-family calls
+  15 s, the osascript chooser 5 min (it waits for the user), the lock
+  keystroke 60 s, an agent launch 6 h (pipico waits for the agent to exit).
+  The optional `system_profiler` USB helper has a 10 s timeout, but the
+  shipped `doctor` never spawns it (see the `usb` check under "doctor").
 - The child environment is built from an explicit allowlist (`HOME`, `LANG`,
   `LC_ALL`, `LOGNAME`, `PATH`, `TMPDIR`, `USER`), never inherited wholesale,
   so parent-only variables such as tokens or `PIPICO_*` test knobs never
@@ -426,9 +436,10 @@ The macOS operations (`open -a`, `open <url>`, the osascript chooser, the
 lock action, agent launch) are implemented in `src/platform/mac.ts` behind
 the platform interface, with the argv shapes covered by tests through an
 injected spawner. **No Mac is attached in this mission: every real macOS
-execution is NOT_RUN** — including `doctor`'s macOS USB check
-(`system_profiler`) and every real Shortcuts binding. On Linux the real
-platform refuses every action with exit 4 and spawns nothing by design;
+execution is NOT_RUN** — including the macOS USB observation (whose helper
+the shipped `doctor` currently skips; see the `usb` check above) and every
+real Shortcuts binding. On Linux the real platform refuses every action
+with exit 4 and spawns nothing by design;
 install/uninstall/doctor are host-independent and fully exercised here with
 a temp `$HOME` and the fake platform.
 
@@ -480,6 +491,6 @@ tooling only: `typescript` and `@types/bun`.
   osascript lock keystroke) is implemented behind the platform layer and is
   NOT_RUN in this mission; on Linux the real platform refuses everything by
   design. The lock additionally needs one-time Automation and Accessibility
-  grants for the host app (see "Lock permissions" above) — a checklist for
-  verifying this on the real Mac lives in `docs/pipico/HARDWARE-TESTS.md`
-  (written in the release milestone).
+  grants for the host app (see "Lock permissions" above) — the checklist for
+  verifying this on the real Mac is `docs/pipico/HARDWARE-TESTS.md` (G12;
+  the board-side gates G1 and G5–G10 are in the same file).
