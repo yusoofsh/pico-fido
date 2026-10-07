@@ -127,6 +127,71 @@ describe('real uninstall (VAL-HOST-039)', () => {
   });
 });
 
+describe('nested XDG uninstall (VAL-HOST-039)', () => {
+  const nestedEnv = (home: string): Record<string, string | undefined> => ({
+    HOME: home,
+    XDG_CONFIG_HOME: join(home, 'a/b/config'),
+  });
+  const nestedManifestPath = (home: string): string => manifestPathFor(join(home, 'a/b/config'));
+  const readNestedManifest = (home: string): { resources: Array<Record<string, unknown>> } =>
+    JSON.parse(readFileSync(nestedManifestPath(home), 'utf8'));
+
+  async function installNested(home: string): Promise<void> {
+    const { io } = captureIo();
+    expect(await runInstallCommand(false, nestedEnv(home), io, RUNTIME)).toBe(0);
+  }
+
+  it('removes invocation-created ancestors deepest-first when they end up empty', async () => {
+    const home = newHome();
+    await installNested(home);
+    const listed: string[] = readNestedManifest(home).resources.map((e) => e.path as string);
+    for (const p of [join(home, 'a'), join(home, 'a/b'), join(home, 'a/b/config'), join(home, 'a/b/config/pipico')]) {
+      expect(listed).toContain(p);
+    }
+
+    const { io } = captureIo();
+    const code = await runUninstallCommand(false, nestedEnv(home), io);
+    expect(code).toBe(0);
+    for (const p of listed) expect(existsSync(p)).toBe(false);
+    expect(existsSync(nestedManifestPath(home))).toBe(false);
+    expect(existsSync(join(home, 'a'))).toBe(false);
+    expect(existsSync(join(home, '.local'))).toBe(false);
+    expect(existsSync(home)).toBe(true); // HOME itself is never a manifest resource
+  });
+
+  it('keeps a pre-existing ancestor and its canary', async () => {
+    const home = newHome();
+    mkdirSync(join(home, 'a'));
+    writeFileSync(join(home, 'a/CANARY.txt'), 'CANARY\n');
+    await installNested(home);
+
+    const { io } = captureIo();
+    const code = await runUninstallCommand(false, nestedEnv(home), io);
+    expect(code).toBe(0);
+    expect(existsSync(join(home, 'a'))).toBe(true);
+    expect(readFileSync(join(home, 'a/CANARY.txt'), 'utf8')).toBe('CANARY\n');
+    expect(existsSync(join(home, 'a/b'))).toBe(false);
+    expect(existsSync(nestedManifestPath(home))).toBe(false);
+  });
+
+  it('keeps an invocation-created ancestor that acquired a user file, and the ancestor containing it', async () => {
+    const home = newHome();
+    await installNested(home);
+    writeFileSync(join(home, 'a/b/user.txt'), 'USER\n');
+
+    const { io, out } = captureIo();
+    const code = await runUninstallCommand(false, nestedEnv(home), io);
+    expect(code).toBe(0);
+    expect(readFileSync(join(home, 'a/b/user.txt'), 'utf8')).toBe('USER\n');
+    expect(existsSync(join(home, 'a/b'))).toBe(true);
+    expect(existsSync(join(home, 'a'))).toBe(true); // still needed to contain a/b
+    expect(existsSync(join(home, 'a/b/config'))).toBe(false);
+    expect(existsSync(join(home, 'a/b/config/pipico'))).toBe(false);
+    expect(existsSync(nestedManifestPath(home))).toBe(false);
+    expect(out.join('\n')).toContain('not empty');
+  });
+});
+
 describe('tampered manifests (VAL-HOST-040)', () => {
   it('refuses entries outside HOME, with .. traversal, relative paths, and symlinks — removing nothing', async () => {
     const home = await installedHome();
