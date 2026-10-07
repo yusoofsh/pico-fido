@@ -348,6 +348,32 @@ if(NOT ESP_PLATFORM)
             stall_gap stall_gap_overhold start_pressed event_counts)
             add_test(NAME gesture_${scene} COMMAND fido_gesture_test ${scene})
         endforeach()
+
+        # Pure keyboard arbiter (companion gating): accepts a gesture event
+        # only when auth/UP/OTP are idle and the keyboard interface is
+        # usable, holds one pending event for at most 100 ms and always
+        # pairs an issued key-down with a release. One process per
+        # scenario, so ctest -R arbiter selects them by name.
+        add_executable(fido_kbd_arbiter_test
+            ${CMAKE_CURRENT_LIST_DIR}/src/pipico/gesture.c
+            ${CMAKE_CURRENT_LIST_DIR}/src/pipico/kbd_arbiter.c
+            ${CMAKE_CURRENT_LIST_DIR}/tests/fido_kbd_arbiter_test.c
+        )
+        target_include_directories(fido_kbd_arbiter_test PRIVATE ${CMAKE_CURRENT_LIST_DIR}/src/pipico)
+        if(MSVC)
+            target_compile_options(fido_kbd_arbiter_test PRIVATE /W4 /WX)
+        else()
+            target_compile_options(fido_kbd_arbiter_test PRIVATE -Wall -Wextra -Werror)
+        endif()
+        foreach(scene IN ITEMS
+            accept_all_clear drop_auth_busy drop_up_pending drop_auth_and_up
+            drop_otp_typing drop_tx_busy drop_kb_disabled drop_unmounted drop_suspended
+            stale_100 stale_101 stale_wrap
+            interrupt_unmount interrupt_suspend interrupt_auth_busy interrupt_up_pending
+            pending_blocks_on_otp queue_depth_one release_guaranteed release_after_wrap
+            mapping started_during_busy_auth started_during_busy_otp)
+            add_test(NAME arbiter_${scene} COMMAND fido_kbd_arbiter_test ${scene})
+        endforeach()
     else()
         target_link_libraries(
             pico_fido
