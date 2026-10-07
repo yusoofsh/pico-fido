@@ -2,7 +2,7 @@
  * End-to-end tests: spawn `bun src/cli.ts` exactly the way validators and
  * users do, with a temp HOME, and compare the HOME tree before and after.
  */
-import { existsSync, readFileSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, mkdirSync, mkdtempSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'bun:test';
@@ -143,11 +143,55 @@ describe('subprocess CLI', () => {
     expect(readFileSync(log, 'utf8')).toBe('');
   });
 
-  it('doctor reports a valid config as ok with the fake platform', async () => {
+  it('doctor reports a valid config as ok with the fake platform (exit 5: not installed)', async () => {
     const home = tempDir('home');
     writeDefaultConfig(home, 'https://attention.example/today');
     const r = await spawnCli(['doctor'], { HOME: home, PIPICO_PLATFORM: 'fake' });
-    expect(r.code).toBe(0);
+    expect(r.code).toBe(5); // only the executable check fails (no install yet)
     expect(r.stdout).toContain('config: ok');
+    expect(r.stdout).toContain('executable: FAIL');
+  });
+
+  it('install, doctor and uninstall work end to end in a temp HOME', async () => {
+    const home = tempDir('home');
+    const exe = join(home, '.local', 'bin', 'pipico');
+    const manifestPath = join(home, '.config', 'pipico', 'installed.json');
+
+    // Install (the "fake platform" env is the validator standard; install
+    // itself never uses the platform and writes only under HOME).
+    const install = await spawnCli(['install'], { HOME: home, PIPICO_PLATFORM: 'fake' });
+    expect(install.code).toBe(0);
+    expect(existsSync(exe)).toBe(true);
+    expect(statSync(exe).mode & 0o111).not.toBe(0);
+    // The wrapper runs the very CLI that installed it, by absolute path.
+    expect(readFileSync(exe, 'utf8')).toContain(CLI);
+    // Binding instructions name F13-F16 with the absolute wrapper path.
+    for (const [key, command] of [['F13', 'action'], ['F14', 'attention'], ['F15', 'incident'], ['F16', 'lock']]) {
+      expect(install.stdout).toContain(`${exe} ${command}`);
+    }
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+    expect(manifest.pipicoManifest).toBe(1);
+    const listed: string[] = manifest.resources.map((e: { path: string }) => e.path);
+    expect(listed).toContain(exe);
+    expect(listed).toContain(join(home, '.config', 'pipico', 'config.json'));
+    expect(listed).not.toContain(manifestPath);
+
+    // doctor is healthy on the installed setup.
+    const doctor = await spawnCli(['doctor'], { HOME: home, PIPICO_PLATFORM: 'fake' });
+    expect(doctor.code).toBe(0);
+    expect(doctor.stdout).toContain(`executable: ok (${exe})`);
+
+    // A user file that install/uninstall must never touch.
+    writeFileSync(join(home, 'other.txt'), 'USER\n');
+
+    // Dry-run removes nothing; uninstall removes only manifest resources.
+    const dry = await spawnCli(['uninstall', '--dry-run'], { HOME: home, PIPICO_PLATFORM: 'fake' });
+    expect(dry.code).toBe(0);
+    expect(existsSync(exe)).toBe(true);
+    const uninstall = await spawnCli(['uninstall'], { HOME: home, PIPICO_PLATFORM: 'fake' });
+    expect(uninstall.code).toBe(0);
+    expect(existsSync(exe)).toBe(false);
+    expect(existsSync(manifestPath)).toBe(false);
+    expect(readFileSync(join(home, 'other.txt'), 'utf8')).toBe('USER\n');
   });
 });

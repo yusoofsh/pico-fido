@@ -44,6 +44,24 @@ export function makeTempHome(): string {
   return mkdtempSync(join(tmpdir(), 'pipico-test-'));
 }
 
+/** Output sinks that capture lines in memory, for direct handler/unit calls. */
+export function captureIo(): {
+  io: { out(line: string): void; err(line: string): void };
+  out: string[];
+  err: string[];
+} {
+  const out: string[] = [];
+  const err: string[] = [];
+  return {
+    io: {
+      out: (line: string) => out.push(line),
+      err: (line: string) => err.push(line),
+    },
+    out,
+    err,
+  };
+}
+
 /** Write a (possibly mutated) valid config to the default location under home. */
 export function writeDefaultConfig(home: string, mutate?: (cfg: AnyConfig) => void): string {
   const dir = join(home, '.config', 'pipico');

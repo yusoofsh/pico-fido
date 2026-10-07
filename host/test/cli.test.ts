@@ -330,36 +330,25 @@ describe('handlers validate config before running on the fake platform', () => {
     }
   });
 
-  it('not-yet-implemented install/uninstall say so honestly and change nothing', async () => {
-    for (const command of ['install', 'uninstall']) {
-      const home = newHome();
-      writeDefaultConfig(home);
-      const before = snapshotDir(home);
-      const { env } = fakeEnvExternalLog(home);
-      const r = await runCli([command], env);
-      expect(r.code).toBe(1);
-      expect(r.stderr).toContain('not implemented');
-      expect(snapshotDir(home)).toBe(before);
-    }
-  });
-
-  it('install --dry-run reports that nothing was changed', async () => {
+  it('install --dry-run exits 0 and changes nothing (see install.test.ts for the full plan)', async () => {
     const home = newHome();
     const before = snapshotDir(home);
     const r = await runCli(['install', '--dry-run'], { HOME: home });
-    expect(r.code).toBe(1);
-    expect(r.stderr).toContain('nothing was changed');
+    expect(r.code).toBe(0);
+    expect(r.stdout).toContain('dry run');
+    expect(r.stdout).toContain(join(home, '.local/bin/pipico'));
     expect(snapshotDir(home)).toBe(before);
   });
 });
 
 describe('doctor', () => {
-  it('reports a valid config as ok with the fake platform (exit 0)', async () => {
+  it('reports a valid config as ok with the fake platform (executable check fails: exit 5)', async () => {
     const home = newHome();
     writeDefaultConfig(home);
     const r = await runCli(['doctor'], fakeEnv(home));
-    expect(r.code).toBe(0);
+    expect(r.code).toBe(5);
     expect(r.stdout).toContain('config: ok');
+    expect(r.stdout).toContain('executable: FAIL');
   });
 
   it('reports config problems with the key path and exits 3', async () => {
@@ -384,7 +373,7 @@ describe('doctor', () => {
     const home = newHome();
     const p = writeConfigFile(home, 'ok.json');
     const r = await runCli(['doctor', '--config', p], { HOME: home, PIPICO_PLATFORM: 'fake' });
-    expect(r.code).toBe(0);
+    expect(r.code).toBe(5); // config ok; only the executable check fails (no install)
     expect(r.stdout).toContain('config: ok');
     expect(r.stdout).toContain(p);
   });
