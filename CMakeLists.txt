@@ -405,6 +405,30 @@ if(NOT ESP_PLATFORM)
             mapping started_during_busy_auth started_during_busy_otp)
             add_test(NAME arbiter_${scene} COMMAND fido_kbd_arbiter_test ${scene})
         endforeach()
+
+        # Companion glue lifecycle (src/pipico/pipico.c pure core): the
+        # per-tick pipeline sample -> gesture -> arbiter -> transmitter
+        # with the auth-busy mapping is_busy() || exec_finished_cancelled.
+        # Focus: cancellation-unwind suppression, normal rearming, the
+        # F13..F16 mapping and the no-replay rule. One process per
+        # scenario, so ctest -R glue selects them by name.
+        add_executable(fido_pipico_glue_test
+            ${CMAKE_CURRENT_LIST_DIR}/src/pipico/gesture.c
+            ${CMAKE_CURRENT_LIST_DIR}/src/pipico/kbd_arbiter.c
+            ${CMAKE_CURRENT_LIST_DIR}/src/pipico/pipico.c
+            ${CMAKE_CURRENT_LIST_DIR}/tests/fido_pipico_glue_test.c
+        )
+        target_include_directories(fido_pipico_glue_test PRIVATE ${CMAKE_CURRENT_LIST_DIR}/src/pipico)
+        if(MSVC)
+            target_compile_options(fido_pipico_glue_test PRIVATE /W4 /WX)
+        else()
+            target_compile_options(fido_pipico_glue_test PRIVATE -Wall -Wextra -Werror)
+        endif()
+        foreach(scene IN ITEMS
+            cancel_unwind_suppressed busy_kinds_suppress
+            normal_completion_rearm cancel_clear_rearm mapping_f13_f16)
+            add_test(NAME glue_${scene} COMMAND fido_pipico_glue_test ${scene})
+        endforeach()
     else()
         target_link_libraries(
             pico_fido
