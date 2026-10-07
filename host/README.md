@@ -398,7 +398,13 @@ Every spawn goes through the one runner in `src/exec.ts`:
 - argv arrays only; arguments reach the child verbatim. No shell is ever
   involved (no `shell` option is ever set), and the program path is always
   absolute.
-- Every spawn has a mandatory finite timeout; the child is SIGKILLed at it:
+- Every spawn has a mandatory finite timeout, and the runner always settles
+  by it: at the deadline the direct child is SIGKILLed and the runner stops
+  reading the output pipes it owns, without waiting for their EOF. A helper
+  or grandchild that inherited those pipes can hold them open long after the
+  direct child is gone; the deadline never waits for that EOF. Descendants
+  are neither killed nor waited for (there is no process-tree killing), so
+  callers must not assume a descendant is terminated. Applied per call:
   `open`-family calls 15 s, the osascript chooser 5 min (it waits for the
   user), an agent launch 6 h (pipico waits for the agent to exit).
 - The child environment is built from an explicit allowlist (`HOME`, `LANG`,
