@@ -111,4 +111,3 @@ export function snapshotDir(root: string): string {
   walk(root, '');
   return lines.join('\n');
 }
-
