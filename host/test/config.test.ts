@@ -66,6 +66,54 @@ describe('validateConfig', () => {
     });
   }
 
+  // VAL-HOST-007: an unknown key that decodes to a control character (the
+  // JSON source only ever shows it escaped) must be rendered with the
+  // echoSafe rules: every C0/DEL byte becomes "?", so the diagnostic cannot
+  // inject terminal controls or split into several lines, while the schema
+  // field path stays readable.
+  const controlKeys: Array<[string, string, string]> = [
+    ['newline', '\n', '?'],
+    ['escape', '\u001b[31m', '?[31m'],
+    ['nul', '\u0000', '?'],
+    ['tab', '\t', '?'],
+    ['carriage return', '\r', '?'],
+    ['delete', '\u007f', '?'],
+  ];
+  const controlLevels: Array<[string, (cfg: AnyConfig, key: string) => void, RegExp]> = [
+    ['top', (c, k) => { c[k] = 1; }, /^config: unknown key "/],
+    ['workspace', (c, k) => { c.workspaces.devops[k] = 1; }, /^config\.workspaces\.devops: unknown key "/],
+    ['incident', (c, k) => { c.incident[k] = 1; }, /^config\.incident: unknown key "/],
+    ['study', (c, k) => { c.study[k] = 1; }, /^config\.study: unknown key "/],
+  ];
+
+  for (const [level, mutate, scopeRx] of controlLevels) {
+    for (const [name, key, rendered] of controlKeys) {
+      it(`renders an unknown key decoding to ${name} at the ${level} level control-free and on one line`, () => {
+        const cfg = JSON.parse(JSON.stringify(VALID_CONFIG));
+        mutate(cfg, key);
+        let caught: unknown;
+        try {
+          validateConfig(cfg);
+        } catch (e) {
+          caught = e;
+        }
+        expect(caught).toBeInstanceOf(ConfigError);
+        const first = (caught as ConfigError).errors[0] as string;
+        // The readable scope/key path is retained and names the key...
+        expect(first).toMatch(scopeRx);
+        expect(first).toContain(`unknown key "${rendered}"`);
+        // ...on exactly one line with no raw C0/DEL byte anywhere.
+        expect(first.split('\n')).toHaveLength(1);
+        for (const ch of first) {
+          const cp = ch.codePointAt(0)!;
+          if (cp <= 0x1f || cp === 0x7f) {
+            throw new Error(`raw control byte 0x${cp.toString(16).padStart(2, '0')} in diagnostic: ${JSON.stringify(first)}`);
+          }
+        }
+      });
+    }
+  }
+
   const dangerousKeys = ['shell', 'command', 'shell_command', 'cmd', 'exec', 'script', 'args'];
   const dangerousLocations: Array<[string, (cfg: AnyConfig, key: string) => void]> = [
     ['top level', (c, k) => { c[k] = 'touch /tmp/pwned'; }],

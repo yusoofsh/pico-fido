@@ -93,9 +93,13 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
 function collectUnknownKeys(scope: string, obj: Record<string, unknown>, allowed: readonly string[], errors: string[]): void {
   for (const key of Object.keys(obj)) {
     if (DANGEROUS_KEYS.has(key)) {
-      errors.push(`${scope}: key "${key}" is not allowed (pipico never runs shell commands from config)`);
+      errors.push(`${scope}: key "${echoSafe(key)}" is not allowed (pipico never runs shell commands from config)`);
     } else if (!allowed.includes(key)) {
-      errors.push(`${scope}: unknown key "${key}" (allowed keys: ${allowed.join(', ')})`);
+      // echoSafe keeps the diagnostic one line long and control-free even
+      // when the key's JSON source escaped a newline, ESC or DEL: raw
+      // control bytes must never reach the terminal, while the scope path
+      // stays readable.
+      errors.push(`${scope}: unknown key "${echoSafe(key)}" (allowed keys: ${allowed.join(', ')})`);
     }
   }
 }

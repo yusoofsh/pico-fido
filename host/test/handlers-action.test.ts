@@ -6,7 +6,11 @@
 import { join } from 'node:path';
 import { describe, expect, it } from 'bun:test';
 import { runCli } from '../src/cli.ts';
-import { fakeEnv, makeTempHome, readLogLines, snapshotDir, writeDefaultConfig } from './helpers.ts';
+import { validateConfig, type LoadedConfig } from '../src/config.ts';
+import { runAction } from '../src/handlers/action.ts';
+import { CHOOSER_CANCEL_TAG, CHOOSER_SCRIPT, CHOOSER_SELECT_TAG, MacPlatform } from '../src/platform/mac.ts';
+import type { RunOptions, RunResult } from '../src/exec.ts';
+import { captureIo, fakeEnv, makeTempHome, readLogLines, snapshotDir, VALID_CONFIG, writeDefaultConfig } from './helpers.ts';
 
 function logPath(home: string): string {
   return join(home, 'fake-platform.log');
@@ -147,5 +151,87 @@ describe('action: agent launch only on explicit choice (VAL-HOST-019)', () => {
     const r = await runCli(['action'], env);
     expect(r.code).toBe(3); // config validation rejects the unknown key outright
     expect(r.stderr).toContain('unknown key');
+  });
+});
+
+describe('action via injected MacPlatform: CANCELED is selectable, cancel does nothing (VAL-HOST-029)', () => {
+  interface RecordedCall { argv: string[]; opts: RunOptions; }
+
+  /** A spawner that records every argv and answers with one fixed stdout. */
+  function spawner(stdout: string) {
+    const calls: RecordedCall[] = [];
+    const spawn = async (argv: readonly string[], opts: RunOptions): Promise<RunResult> => {
+      calls.push({ argv: [...argv], opts });
+      return { code: 0, stdout, stderr: '' };
+    };
+    return { calls, spawn };
+  }
+
+  /** A schema-valid config whose workspaces include the id "CANCELED". */
+  function canceledConfig(): LoadedConfig {
+    const raw = JSON.parse(JSON.stringify(VALID_CONFIG));
+    raw.workspaces.CANCELED = {
+      label: 'Canceled-like workspace',
+      app: 'com.apple.Terminal',
+      paths: ['/Users/yusoof/work/infra'],
+      urls: ['https://grafana.internal.example/dash'],
+    };
+    return { path: '/tmp/pipico-test/config.json', source: 'env' as const, config: validateConfig(raw) };
+  }
+
+  it('accepts a config with a workspace id CANCELED (no id is a reserved sentinel)', () => {
+    expect(canceledConfig().config.workspaces.CANCELED).toBeDefined();
+  });
+
+  it('selecting CANCELED opens exactly that workspace\'s configured resources', async () => {
+    const { calls, spawn } = spawner(`${CHOOSER_SELECT_TAG}\nCANCELED\n`);
+    const platform = new MacPlatform(spawn, () => true);
+    const { io, out, err } = captureIo();
+    const code = await runAction({ loaded: canceledConfig(), platform, io, dryRun: false });
+    expect(code).toBe(0);
+    expect(out.join('')).toContain('CANCELED');
+    expect(err.join('')).toBe('');
+    // Exactly three spawns: the chooser, then only the CANCELED workspace's
+    // app open and URL open. No lock, no agent launch.
+    expect(calls).toHaveLength(3);
+    const [chooser, appOpen, urlOpen] = calls.map((c) => c.argv);
+    expect(chooser![0]).toBe('/usr/bin/osascript');
+    expect(chooser![1]).toBe('-e');
+    expect(chooser![2]).toBe(CHOOSER_SCRIPT);
+    expect(chooser!.slice(3)).toContain('CANCELED');
+    expect(appOpen).toEqual(['/usr/bin/open', '-a', 'com.apple.Terminal', '/Users/yusoof/work/infra']);
+    expect(urlOpen).toEqual(['/usr/bin/open', 'https://grafana.internal.example/dash']);
+  });
+
+  it('cancellation (with CANCELED offered) performs no app-open, URL-open, lock or agent-launch', async () => {
+    const { calls, spawn } = spawner(`${CHOOSER_CANCEL_TAG}\n`);
+    const platform = new MacPlatform(spawn, () => true);
+    const { io, out } = captureIo();
+    const code = await runAction({ loaded: canceledConfig(), platform, io, dryRun: false });
+    expect(code).toBe(0);
+    expect(out.join('')).toContain('canceled');
+    // Only the chooser ran; nothing was opened, locked or launched.
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.argv[0]).toBe('/usr/bin/osascript');
+  });
+
+  it('the fake CLI opens a workspace literally named CANCELED when it is chosen', async () => {
+    const home = makeTempHome();
+    writeDefaultConfig(home, (c) => {
+      c.workspaces.CANCELED = {
+        label: 'Canceled-like workspace',
+        app: 'com.apple.Terminal',
+        paths: ['/Users/yusoof/work/infra'],
+        urls: ['https://grafana.internal.example/dash'],
+      };
+    });
+    const env = fakeEnv(home, { PIPICO_FAKE_CHOICE: 'CANCELED' });
+    const r = await runCli(['action'], env);
+    expect(r.code).toBe(0);
+    expect(readLogLines(logPath(home))).toEqual([
+      { op: 'choose', prompt: expect.any(String), options: ['devops', 'study', 'CANCELED'] },
+      { op: 'openApp', app: 'com.apple.Terminal', path: '/Users/yusoof/work/infra' },
+      { op: 'openUrl', url: 'https://grafana.internal.example/dash' },
+    ]);
   });
 });

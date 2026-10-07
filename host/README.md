@@ -60,6 +60,16 @@ itself. Picking `<id>:<agent>` does the same opens and then launches the
 agent (see "Agent launch" below); a workspace with no paths refuses the
 agent choice up front with no opens.
 
+On macOS the chooser's answer is **tagged** by the static AppleScript: a
+cancellation returns exactly `pipico-chooser-cancel`, and a selection
+returns `pipico-chooser-selected` plus the picked option on the next line.
+`MacPlatform` decodes the tag before reading the option, so no schema-valid
+workspace id is reserved as a sentinel: a workspace literally named
+`CANCELED` (or named exactly like either tag) is accepted and selectable,
+and cancelling still opens nothing. The prompt and every option reach
+`osascript` only as separate argv items consumed via `on run argv`; nothing
+is ever interpolated into the script text.
+
 **incident (F15).** Creates `<notesRoot>/<YYYYMMDD>-<HHMMSS>` (local time,
 pattern `^[0-9]{8}-[0-9]{6}$`) containing `notes.md` rendered from the
 in-source template, an empty `evidence/` directory and `handoff.md`, then
@@ -306,7 +316,11 @@ Example (this exact shape is used by the test suite):
 **Unknown keys are rejected at every level** (top level, workspace, incident,
 study). There is no `shell`, `command`, `shell_command`, `cmd`, `exec`,
 `script` or `args` field anywhere, now or later; requesting one is rejected
-explicitly. Pipico never runs shell commands from config.
+explicitly. Pipico never runs shell commands from config. An unknown key is
+echoed in the diagnostic through the control-free renderer (`echoSafe`): a
+key whose JSON source escapes a newline, ESC, DEL or any other C0 control
+appears with each control byte replaced by `?`, so the error stays one
+readable line and injects no terminal control sequence.
 
 ### Allowlists
 

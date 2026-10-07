@@ -124,6 +124,59 @@ describe('config rejection through handlers (fake platform, zero platform calls)
     }
   });
 
+  it('renders JSON-escaped control-character unknown keys safely at every level', async () => {
+    // VAL-HOST-007: a JSON-escaped key that decodes to a control character
+    // must not inject raw bytes into the diagnostic or split it into
+    // several lines. Every control the echoSafe helper covers is rendered
+    // as "?" and the diagnostic stays one clean line.
+    const controlKeys: Array<[string, string]> = [
+      ['newline', '\n'],
+      ['escape', '\u001b[31m'],
+      ['nul', '\u0000'],
+      ['tab', '\t'],
+      ['carriage return', '\r'],
+      ['delete', '\u007f'],
+    ];
+    const levels: Array<[(cfg: any, k: string) => void, RegExp]> = [
+      [(c, k) => { c[k] = 1; }, /^config error: config: unknown key "/],
+      [(c, k) => { c.workspaces.devops[k] = 1; }, /^config error: config\.workspaces\.devops: unknown key "/],
+      [(c, k) => { c.incident[k] = 1; }, /^config error: config\.incident: unknown key "/],
+      [(c, k) => { c.study[k] = 1; }, /^config error: config\.study: unknown key "/],
+    ];
+    for (const [name, key] of controlKeys) {
+      for (const [mutate, rx] of levels) {
+        for (const command of ['attention', 'doctor'] as const) {
+          const home = newHome();
+          writeDefaultConfig(home, (c) => mutate(c, key));
+          const r = await runCli([command], fakeEnv(home));
+          expect(r.code).toBe(3);
+          // The diagnostic still names the readable key path...
+          expect(r.stderr).toMatch(rx);
+          // ...on a single line: apart from the terminating newline, no
+          // raw C0 or DEL byte anywhere in stderr.
+          const body = r.stderr.endsWith('\n') ? r.stderr.slice(0, -1) : r.stderr;
+          expect(body.includes('\n')).toBe(false);
+          for (const ch of body) {
+            const cp = ch.codePointAt(0)!;
+            if (cp <= 0x1f || cp === 0x7f) {
+              throw new Error(
+                `raw control byte 0x${cp.toString(16).padStart(2, '0')} in ${command} stderr ` +
+                `for the ${name} key: ${JSON.stringify(r.stderr)}`,
+              );
+            }
+          }
+          // Zero platform calls on rejection: the attention run leaves the
+          // (truncated) log empty; doctor never constructs the fake
+          // platform, so its log is absent or empty.
+          const log = join(home, 'fake-platform.log');
+          const calls = existsSync(log) ? readLogLines(log) : [];
+          expect(calls).toEqual([]);
+          if (command === 'attention') expect(existsSync(log)).toBe(true);
+        }
+      }
+    }
+  });
+
   it('rejects shell/command fields at every level for every gated handler', async () => {
     for (const key of ['shell', 'command', 'shell_command', 'cmd', 'exec', 'script', 'args']) {
       for (const mutate of [
