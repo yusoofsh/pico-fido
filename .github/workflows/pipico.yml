@@ -67,8 +67,16 @@ jobs:
 
       - name: Install build and test system packages
         run: |
-          sudo apt-get update -q
-          sudo apt-get install -y ninja-build help2man libusb-1.0-0-dev libtss2-dev python3-dev pcscd libpcsclite-dev
+          # archive.ubuntu.com occasionally stalls on the hosted runners;
+          # retry the update+install pair with a hard per-attempt timeout
+          for attempt in 1 2 3; do
+            if timeout 240 sudo apt-get update -q && timeout 300 sudo apt-get install -y ninja-build help2man libusb-1.0-0-dev libtss2-dev python3-dev pcscd libpcsclite-dev; then
+              break
+            fi
+            echo "apt attempt $attempt failed; retrying"
+            [ "$attempt" = 3 ] && exit 1
+            sleep 10
+          done
 
       - name: Build the pinned picotool 2.3.1 (flat install)
         run: |
