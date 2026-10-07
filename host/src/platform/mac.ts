@@ -14,6 +14,10 @@
  *               never changes any setting and never reverses a lock.
  * - launchAgent: the fixed allowlisted argv from src/agents.ts
  * - choose:     /usr/bin/osascript -e <static script> <prompt> <options...>
+ *               The script's answer is tagged (cancel tag, or a select tag
+ *               plus the picked option on the next line) so cancellation is
+ *               distinguishable from selecting any workspace id, including
+ *               one literally named CANCELED.
  *
  * The chooser is injection-safe by construction: CHOOSER_SCRIPT is a source
  * constant, and the prompt and every option are passed as separate argv
@@ -55,9 +59,20 @@ export const CHOOSER_TIMEOUT_MS = 300_000;
 /** pipico waits for the agent to exit; hard stop after six hours. */
 export const AGENT_TIMEOUT_MS = 6 * 60 * 60 * 1000;
 
-export const CHOOSER_CANCEL_SENTINEL = 'CANCELED';
+export const CHOOSER_CANCEL_TAG = 'pipico-chooser-cancel';
+export const CHOOSER_SELECT_TAG = 'pipico-chooser-selected';
 
-/** The static chooser script. Data never appears in this text. */
+/**
+ * The static chooser script. Data never appears in this text.
+ *
+ * The answer is tagged so cancellation stays distinguishable from every
+ * selection, including a workspace id that happens to equal a tag or the
+ * word CANCELED (no schema-valid id is a reserved sentinel):
+ * - cancel:    the script returns exactly the cancel tag;
+ * - selection: the script returns "<select tag><linefeed><picked option>".
+ * MacPlatform decodes the tag FIRST and only then reads the picked option,
+ * so the picked id round-trips byte-for-byte.
+ */
 export const CHOOSER_SCRIPT = `on run argv
   set dlgPrompt to "pipico"
   set choices to {}
@@ -69,8 +84,8 @@ export const CHOOSER_SCRIPT = `on run argv
     end repeat
   end if
   set picked to choose from list choices with prompt dlgPrompt
-  if picked is false then return "${CHOOSER_CANCEL_SENTINEL}"
-  return item 1 of picked
+  if picked is false then return "${CHOOSER_CANCEL_TAG}"
+  return "${CHOOSER_SELECT_TAG}" & linefeed & ((item 1 of picked) as text)
 end run`;
 
 /** Control characters never travel into an osascript dialog. */
@@ -160,12 +175,21 @@ export class MacPlatform implements Platform {
     // Data travels as argv only; CHOOSER_SCRIPT is a constant.
     const argv = [OSASCRIPT_BIN, '-e', CHOOSER_SCRIPT, prompt, ...options];
     const result = await this.runChecked(argv, { timeoutMs: CHOOSER_TIMEOUT_MS }, 'choose');
-    const picked = result.stdout.trim();
-    if (picked === CHOOSER_CANCEL_SENTINEL) return null;
-    if (!options.includes(picked)) {
-      throw new Error(`choose: the chooser returned an unknown option (${echoSafe(picked)})`);
+    // Decode the tag BEFORE looking at the picked option, so no offered id
+    // (CANCELED included) can ever be mistaken for a cancellation.
+    const out = result.stdout;
+    if (out === `${CHOOSER_CANCEL_TAG}\n` || out === CHOOSER_CANCEL_TAG) return null;
+    const selectPrefix = `${CHOOSER_SELECT_TAG}\n`;
+    if (out.startsWith(selectPrefix)) {
+      // osascript terminates the answer with one newline; the payload is
+      // everything after the tag line, byte-for-byte.
+      const picked = out.slice(selectPrefix.length).replace(/\n$/, '');
+      if (!options.includes(picked)) {
+        throw new Error(`choose: the chooser returned an unknown option (${echoSafe(picked)})`);
+      }
+      return picked;
     }
-    return picked;
+    throw new Error(`choose: unrecognized chooser response (${echoSafe(out)})`);
   }
 
   async lock(): Promise<void> {

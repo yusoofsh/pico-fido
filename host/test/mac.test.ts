@@ -5,7 +5,7 @@
  * VAL-HOST-025: the lock action is one fixed argv.
  */
 import { describe, expect, it } from 'bun:test';
-import { CHOOSER_SCRIPT, CHOOSER_TIMEOUT_MS, LOCK_SCRIPT, LOCK_TIMEOUT_MS, MacPlatform, OSASCRIPT_BIN } from '../src/platform/mac.ts';
+import { CHOOSER_CANCEL_TAG, CHOOSER_SCRIPT, CHOOSER_SELECT_TAG, CHOOSER_TIMEOUT_MS, LOCK_SCRIPT, LOCK_TIMEOUT_MS, MacPlatform, OSASCRIPT_BIN } from '../src/platform/mac.ts';
 import { SpawnError, type RunOptions, type RunResult } from '../src/exec.ts';
 import { UnsupportedPlatformError } from '../src/platform/index.ts';
 
@@ -29,7 +29,7 @@ const HOSTILE = 'x" & (do shell script "touch /tmp/p") & "';
 
 describe('MacPlatform.choose with an injected spawner', () => {
   it('passes the script and every option as separate argv items, never interpolated', async () => {
-    const { calls, spawn } = recordingSpawner([{ stdout: 'devops\n' }]);
+    const { calls, spawn } = recordingSpawner([{ stdout: `${CHOOSER_SELECT_TAG}\ndevops\n` }]);
     const p = new MacPlatform(spawn, () => true);
     const picked = await p.choose('pick a workspace', ['devops', HOSTILE]);
     expect(picked).toBe('devops');
@@ -51,14 +51,63 @@ describe('MacPlatform.choose with an injected spawner', () => {
     expect(joined.split('do shell script')).toHaveLength(2); // once, in the name only
   });
 
-  it('maps the CANCELED sentinel to null', async () => {
-    const { spawn } = recordingSpawner([{ stdout: 'CANCELED\n' }]);
+  it('maps the tagged cancellation response to null', async () => {
+    const { spawn } = recordingSpawner([{ stdout: `${CHOOSER_CANCEL_TAG}\n` }]);
     const p = new MacPlatform(spawn, () => true);
     expect(await p.choose('pick', ['a', 'b'])).toBeNull();
   });
 
+  it('a selected workspace literally named CANCELED round-trips as CANCELED, not null', async () => {
+    // VAL-HOST-029: no schema-valid workspace id is a cancellation sentinel.
+    // The old untagged script returned the bare word CANCELED on cancel, so
+    // picking a workspace named CANCELED was indistinguishable from
+    // canceling. The tagged protocol decodes the tag first, then the option.
+    const { spawn } = recordingSpawner([{ stdout: `${CHOOSER_SELECT_TAG}\nCANCELED\n` }]);
+    const p = new MacPlatform(spawn, () => true);
+    expect(await p.choose('pick', ['CANCELED', 'devops'])).toBe('CANCELED');
+  });
+
+  it('cancellation answers null even when CANCELED is offered', async () => {
+    const { spawn } = recordingSpawner([{ stdout: `${CHOOSER_CANCEL_TAG}\n` }]);
+    const p = new MacPlatform(spawn, () => true);
+    expect(await p.choose('pick', ['CANCELED', 'devops'])).toBeNull();
+  });
+
+  it('ids that resemble the response tags round-trip unchanged', async () => {
+    // Both tags are themselves schema-valid workspace ids; the two-line
+    // protocol still distinguishes them because the tag is decoded from the
+    // first line and the payload is everything after it.
+    for (const id of [CHOOSER_SELECT_TAG, CHOOSER_CANCEL_TAG]) {
+      const { spawn } = recordingSpawner([{ stdout: `${CHOOSER_SELECT_TAG}\n${id}\n` }]);
+      const p = new MacPlatform(spawn, () => true);
+      expect(await p.choose('pick', [id, 'devops'])).toBe(id);
+    }
+  });
+
+  it('rejects an untagged response instead of guessing', async () => {
+    const { spawn } = recordingSpawner([{ stdout: 'devops\n' }]);
+    const p = new MacPlatform(spawn, () => true);
+    let message = '';
+    try {
+      await p.choose('pick', ['devops']);
+    } catch (e) {
+      message = (e as Error).message;
+    }
+    expect(message).toContain('unrecognized chooser response');
+    // The echoed response stays control-free and single-line.
+    expect(message.split('\n')).toHaveLength(1);
+  });
+
+  it('the script emits exactly the two documented tags and nothing else', () => {
+    // The tags are static source constants: the script never interpolates
+    // data, and cancellation is distinguishable from every selection.
+    expect(CHOOSER_SCRIPT).toContain(`return "${CHOOSER_CANCEL_TAG}"`);
+    expect(CHOOSER_SCRIPT).toContain(`"${CHOOSER_SELECT_TAG}" & linefeed &`);
+    expect(CHOOSER_SCRIPT).not.toContain('CANCELED');
+  });
+
   it('rejects a picked option that was never offered (defensive)', async () => {
-    const { spawn } = recordingSpawner([{ stdout: 'ghost\n' }]);
+    const { spawn } = recordingSpawner([{ stdout: `${CHOOSER_SELECT_TAG}\nghost\n` }]);
     const p = new MacPlatform(spawn, () => true);
     let message = '';
     try {
