@@ -330,8 +330,8 @@ describe('handlers validate config before running on the fake platform', () => {
     }
   });
 
-  it('not-yet-implemented handlers say so honestly and change nothing', async () => {
-    for (const command of ['action', 'incident', 'study', 'lock', 'install', 'uninstall']) {
+  it('not-yet-implemented install/uninstall say so honestly and change nothing', async () => {
+    for (const command of ['install', 'uninstall']) {
       const home = newHome();
       writeDefaultConfig(home);
       const before = snapshotDir(home);

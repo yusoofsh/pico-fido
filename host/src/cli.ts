@@ -14,7 +14,19 @@ import type { CliIo, HandlerCtx } from './handlers/context.ts';
 import { runAttention } from './handlers/attention.ts';
 import { runDoctor } from './handlers/doctor.ts';
 import type { DoctorConfigOutcome } from './handlers/doctor.ts';
-import { runAction, runInstall, runIncident, runLock, runStudy } from './handlers/stubs.ts';
+import { runInstall } from './handlers/install.ts';
+import { runAction } from './handlers/action.ts';
+import { runIncident } from './handlers/incident.ts';
+import { runStudy } from './handlers/study.ts';
+import { runLock } from './handlers/lock.ts';
+
+const GATED: Record<string, (ctx: HandlerCtx) => Promise<number>> = {
+  action: runAction,
+  attention: runAttention,
+  incident: runIncident,
+  study: runStudy,
+  lock: runLock,
+};
 
 export const USAGE = `pipico - host companion CLI for the Yusoofs Pipico FIDO key
 
@@ -95,14 +107,6 @@ function parseArgs(argv: string[]): ParsedArgs {
   }
   return parsed;
 }
-
-const GATED: Record<string, (ctx: HandlerCtx) => Promise<number>> = {
-  action: runAction,
-  attention: runAttention,
-  incident: runIncident,
-  study: runStudy,
-  lock: runLock,
-};
 
 export async function runCli(argv: string[], env: Env): Promise<CliResult> {
   const out: string[] = [];
