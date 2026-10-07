@@ -323,6 +323,31 @@ if(NOT ESP_PLATFORM)
             target_link_libraries(fido_storage_locked_test PRIVATE pthread m)
         endif()
         add_test(NAME fido_storage_locked_test COMMAND fido_storage_locked_test)
+
+        # Pure gesture parser (USR button taps and holds): a time-injected
+        # state machine with no SDK headers, one process per scenario so
+        # ctest -R gesture selects them by name.
+        add_executable(fido_gesture_test
+            ${CMAKE_CURRENT_LIST_DIR}/src/pipico/gesture.c
+            ${CMAKE_CURRENT_LIST_DIR}/tests/fido_gesture_test.c
+        )
+        target_include_directories(fido_gesture_test PRIVATE ${CMAKE_CURRENT_LIST_DIR}/src/pipico)
+        if(MSVC)
+            target_compile_options(fido_gesture_test PRIVATE /W4 /WX)
+        else()
+            target_compile_options(fido_gesture_test PRIVATE -Wall -Wextra -Werror)
+        endif()
+        foreach(scene IN ITEMS
+            tap_29 tap_30 tap_500 tap_501 tap_dead_zone_800
+            single_tap_window double_tap_299 double_tap_300 double_tap_301
+            hold_1499 hold_1500 hold_2999 hold_3000 hold_9999 hold_10000
+            overhold_rearm bounce_tap glitch_19 glitch_in_window_19 debounce_edge_20
+            wrap_hold_1600 wrap_tap wrap_double_tap
+            compound_tap_hold compound_tap_dead_zone compound_tap_too_short
+            abort_mid_press abort_window abort_held
+            stall_gap stall_gap_overhold start_pressed event_counts)
+            add_test(NAME gesture_${scene} COMMAND fido_gesture_test ${scene})
+        endforeach()
     else()
         target_link_libraries(
             pico_fido
