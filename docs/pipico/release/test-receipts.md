@@ -97,6 +97,14 @@ exit 0); `tsc --noEmit` clean (exit 0).
 |---|---|---|---|---|
 | `37685874677` | pico-keys-sdk / `pipico-sdk-tests` | `654fbda1046c0dba3832ff520f7d1ea25d1df45b` | **success** (49 s) | SDK host ctest green |
 | `37685884106` | pico-fido / `pipico` | `b31a8ab969536d754a7737c3ffe12bf7c6e3da5f` | **success** | root ctest 67/67; pytest 348 passed / 3 skipped / 1 deselected / 0 failed; bun 315 pass / 0 fail; bounds self-test 17/17; budget OK (20 B / 1192 B) |
+| `37687857080` | pico-fido / `pipico` | `5ba8b086972ebe931c74352e8930b9f19a71dd87` | **success** | same counts (junit receipt 351 testcases = 348 passed + 3 skipped; artifact downloaded and checked) |
+| `37690147169` | pico-fido / `pipico` | `aa09cf4f28ea63d909bf86bf780d6f4c857f1c6b` | **success** | same counts; first artifact that also uploads `pico_fido.bin` (all three hashes re-verified against the downloaded files) |
+
+The final documentation-only commits of the release branch (including
+this one) change no build input, so the artifact of the branch's final
+green run carries the same binaries with the same hashes (§4 of
+`RELEASE-MANIFEST.md`); its run id is recorded in the mission
+publication record.
 
 Both runs also confirm the earlier observation on the same build inputs:
 runs `37682443999` (source `5833bc2`) and `37685884106` uploaded

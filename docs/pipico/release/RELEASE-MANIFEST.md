@@ -79,15 +79,31 @@ cause and both comparison hashes: `reproducibility.md`), so each entry
 names the file, its hash and the build (source SHA + build path) that
 produced it.
 
-Released artifact — CI run `37685884106` (workflow `pipico`, root
-`b31a8ab969536d754a7737c3ffe12bf7c6e3da5f`, runner build path
-`/home/runner/work/pico-fido/pico-fido/build/arm-pipico`):
+Released artifacts are byte-identical across every successful run of
+this branch since `5833bc2…` (docs-only and workflow-only commits change
+no build input; verified by download each time). The hashes below were
+verified against the **actually downloaded files** of run `37690147169`
+(workflow `pipico`, root `aa09cf4f28ea63d909bf86bf780d6f4c857f1c6b`, the
+run that first uploaded the `.bin`; the same three hashes are printed in
+that artifact's `manifest.txt`):
 
 | File | SHA-256 |
 |---|---|
 | `pico_fido.uf2` | `cfbaa43088c307ef414f103cd2d9d989b60ea8a84846fff52f440f4ad845140e` |
 | `pico_fido.elf` | `5e872a1cfd8f6e148f7aa40282bd45a8fca656598996a2e2a72af3fd67dce95e` |
-| `pico_fido.bin` | `ce8b8be4c7fc9c58fee1de9051d21a2d2ca4ab43e9242469130ee3b85586eedf` (computed inside the run and recorded in the artifact `manifest.txt`; the `.bin` itself is not uploaded) |
+| `pico_fido.bin` | `ce8b8be4c7fc9c58fee1de9051d21a2d2ca4ab43e9242469130ee3b85586eedf` |
+
+Evidence provenance of the `.bin` hash, stated precisely: in runs
+`37682443999`, `37685884106` and `37687857080` the `.bin` was **not
+uploaded**; its hash was computed inside the run and recorded in the
+artifact `manifest.txt` only (manifest-only evidence, no downloaded
+file). From run `37690147169` on (workflow commit `6def65d` "ci: upload
+pico_fido.bin with the release artifacts"), the `.bin` is part of the
+uploaded artifact, and the hash above was recomputed from the downloaded
+file — it equals the earlier in-run value. The build is **not**
+reproducible across build paths (`reproducibility.md`); the CI-runner
+build is cited as released because the released evidence (bounds report
+below, `reproducibility.md` cross-checks) is that build's.
 
 Fresh-clone comparison builds from the same source SHA
 (`reproducibility.md` holds the full table):
@@ -148,3 +164,8 @@ head `b31a8ab…`) concluded **success** and uploaded the artifact
 `image-bounds-report.json`, `budget-report.txt`, and `receipts/`
 (`roothost-ctest.log`, `pytest-receipt.xml`, `bun-test.log`). The counts
 observed in that run's receipts are recorded in `test-receipts.md`.
+Runs `37687857080` (head `5ba8b08…`) and `37690147169` (head `aa09cf4…`,
+the first with the `.bin` uploaded — see §4) concluded **success** with
+the same counts and byte-identical `uf2`/`elf` (and `bin`) files; the
+artifact of the final documentation-only head of this branch carries the
+same binaries as well (docs-only commits change no build input).

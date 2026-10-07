@@ -11,8 +11,8 @@ come from are in `MANIFEST.md`.
 | Status | State | Evidence |
 |---|---|---|
 | SOURCE REVIEWED | achieved | every mission commit reviewed on `pipico/storage-baseline` / `pipico/companion-hooks` (SDK) and `pipico/integration-v1` (root); docs in `docs/pipico/` cite SHAs, not claims |
-| BUILT | achieved | `scripts/pipico/build.sh` exit 0, zero CMake/compiler warnings; root CI run [`37685884106`](https://github.com/yusoofsh/pico-fido/actions/runs/37685884106) (build + gates) green on `b31a8ab969536d754a7737c3ffe12bf7c6e3da5f`; also green on `5833bc2…` (run `37682443999`) and reproduced in two fresh-clone builds (`docs/pipico/release/`) |
-| AUTOMATED TESTS PASSED | achieved | same CI run `37685884106`: SDK ctest 47/47 (run [`37685874677`](https://github.com/yusoofsh/pico-keys-sdk/actions/runs/37685874677) on SDK `654fbda1046c0dba3832ff520f7d1ea25d1df45b`), root host ctest 67/67, emulation pytest 348 passed / 3 skipped / 1 deselected / 0 failed, `bun test` 315 pass / 0 fail, image-bounds self-test 17/17, budget gate OK (RAM delta 20 B ≤ 8192, flash delta 1192 B ≤ 65536); full commands and counts: `docs/pipico/release/test-receipts.md` |
+| BUILT | achieved | `scripts/pipico/build.sh` exit 0, zero CMake/compiler warnings; root CI run [`37685884106`](https://github.com/yusoofsh/pico-fido/actions/runs/37685884106) (build + gates) green on `b31a8ab969536d754a7737c3ffe12bf7c6e3da5f`; also green on `5833bc2…` (run `37682443999`) and on every later evidence-only head — `5ba8b08…` (run `37687857080`), `aa09cf4…` (run `37690147169`) and the final head's run (see "Final SHAs", definitive runs) — and reproduced in two fresh-clone builds (`docs/pipico/release/`) |
+| AUTOMATED TESTS PASSED | achieved | same CI run `37685884106`: SDK ctest 47/47 (run [`37685874677`](https://github.com/yusoofsh/pico-keys-sdk/actions/runs/37685874677) on SDK `654fbda1046c0dba3832ff520f7d1ea25d1df45b`), root host ctest 67/67, emulation pytest 348 passed / 3 skipped / 1 deselected / 0 failed, `bun test` 315 pass / 0 fail, image-bounds self-test 17/17, budget gate OK (RAM delta 20 B ≤ 8192, flash delta 1192 B ≤ 65536); the same counts were re-observed on runs `37687857080` and `37690147169` (final heads: see "Final SHAs"); full commands and counts: `docs/pipico/release/test-receipts.md` |
 | HARDWARE TESTED | **NOT_RUN** | no YD-RP2040 board attached; the board-side checklist lives in `HARDWARE-TESTS.md` (G1, G5–G10) |
 | HOST INSTALLED | **NOT_RUN** | no Mac attached; the Mac-side checklist lives in `HARDWARE-TESTS.md` (G11, G12); the CLI was exercised only on Linux with the fake platform and a temp `$HOME` |
 | FLASHED | **NOT_RUN** | no device writes in this mission; no board was ever flashed |
@@ -48,22 +48,42 @@ software levels stand on the final tuple too.
 
 - **Root built SHA** (all build inputs, the SHA the release evidence was
   built from): `b31a8ab969536d754a7737c3ffe12bf7c6e3da5f` — CI run
-  `37685884106` was green on it and it was the remote branch head after
-  the docs-and-handoff push. The commits after it on the branch are the
-  **release-evidence docs-only series** (`docs/pipico/release/`, the
-  `MANIFEST.md`/`HANDOFF.md` refresh): `git log b31a8ab..HEAD` enumerates
-  them exactly, and each touches only `docs/` — no build input changes
-  (observed directly: the CI artifacts of runs `37682443999`/`37685884106`,
-  whose sources straddle 7 docs-only commits, are byte-identical).
+  `37685884106` was green on it. The commits after it on the branch are
+  **evidence-only**, named explicitly: `6499200` + `5ba8b08` (the
+  release-evidence docs bundle), `6def65d` ("ci: upload pico_fido.bin",
+  an artifact-collection-only workflow change), `aa09cf4` (the
+  `MANIFEST.md` push-receipt row) and this documentation commit —
+  `git log b31a8ab..HEAD` enumerates them exactly. Each touches only
+  `docs/` or the artifact-collection lines of
+  `.github/workflows/pipico.yml`: **no build input changes** (observed
+  directly: the CI artifacts of runs `37682443999` (source `5833bc2`),
+  `37685884106` (`b31a8ab`), `37687857080` (`5ba8b08`) and `37690147169`
+  (`aa09cf4`) were downloaded and re-hashed in the handoff session —
+  `uf2`/`elf` are byte-identical across all four; the `bin` file was not
+  uploaded before run `37690147169` (its hash was recorded in each
+  artifact's `manifest.txt` only) and the downloaded `bin` of run
+  `37690147169` hashes exactly to that recorded value). The definitive root head is the branch tip; its
+  green run and push receipt are recorded in the mission publication
+  record (a commit cannot contain the run id of its own push).
 - **SDK SHA**: `654fbda1046c0dba3832ff520f7d1ea25d1df45b` (head of
   `pipico/companion-hooks`, CI run `37685874677` green on it; a README-only
   commit on top of `3201dbd0e6972a97510c08d21d1386de130c62e2`); the root
   gitlink points there, and the fresh-clone builds resolved exactly it.
-- **PR URLs**: not yet created. The two draft PRs
-  (`pipico/integration-v1` → `main` in pico-fido, `pipico/companion-hooks` →
-  `main` in pico-keys-sdk) are opened by the final release feature, which
-  records their URLs here. Until then this entry is "evidence not found",
-  not "failed".
+  `pipico/storage-baseline` remains a separate remote branch at
+  `a1eb8cf541bae2575985e1b18fb97ced670193bb`; it is an **ancestor** of
+  the tested `pipico/companion-hooks` head (`git merge-base
+  --is-ancestor` verified) and its own head also has a successful run
+  ([`37562735185`](https://github.com/yusoofsh/pico-keys-sdk/actions/runs/37562735185)).
+- **Draft PR URLs** (created 2026-10-07, both **draft**, both into the
+  fork's own `main`, **never merged, never marked ready**):
+  - pico-fido: <https://github.com/yusoofsh/pico-fido/pull/1>
+    (`pipico/integration-v1` → `main`)
+  - pico-keys-sdk: <https://github.com/yusoofsh/pico-keys-sdk/pull/1>
+    (`pipico/companion-hooks` → `main`)
+  Each PR's `headRefOid` equals the remote branch head at handoff (the
+  PR head tracks the branch), and each body describes everything the
+  branch adds relative to `main`, with the status vocabulary and the
+  four NOT_RUN items.
 - **Publication receipts** (every push of the mission branches, M2–M5, with
   old..new ranges and CI run ids): `MANIFEST.md`, "OBSERVED: push receipts".
 
@@ -148,5 +168,7 @@ Scope and limits, stated plainly:
   a fresh clone+configure, resolved flags, SHA-256 of the released and
   fresh-clone UF2/ELF/bin, size/write-range report, budget evidence and
   test receipts in `docs/pipico/release/` (`RELEASE-MANIFEST.md` et al.),
-  and as the CI artifact `pipico-release-evidence` of run `37685884106`
-  (root `b31a8ab…`).
+  and as the CI artifact `pipico-release-evidence` of the branch's green
+  runs (release-evidence source `b31a8ab…`: run `37685884106`; from run
+  `37690147169` on head `aa09cf4…` the artifact also contains the actual
+  `pico_fido.bin`, whose downloaded hash matches the recorded value).

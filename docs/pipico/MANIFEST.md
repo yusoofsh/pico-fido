@@ -164,6 +164,7 @@ existed before M5, so early root pushes name none.
 | 2026-10-07 | m5-docs-and-handoff | SDK `pipico/companion-hooks` `3201dbd…654fbda1046c0dba3832ff520f7d1ea25d1df45b` (README-only commit) | `37685874677` success on `654fbda…` |
 | 2026-10-07 | m5-docs-and-handoff | root `pipico/integration-v1` `5833bc2…b31a8ab969536d754a7737c3ffe12bf7c6e3da5f` (gitlink bump + docs series) | `37685884106` success on `b31a8ab…` |
 | 2026-10-07 | m5-release-evidence-and-repro | root `pipico/integration-v1` `b31a8ab…5ba8b086972ebe931c74352e8930b9f19a71dd87` (release-evidence docs commits `6499200` bundle + `5ba8b08` manifest/handoff refresh) | `37687857080` success on `5ba8b08…` |
+| 2026-10-07 | m5-push-ci-and-draft-prs | root `pipico/integration-v1` `5ba8b08…aa09cf4f28ea63d909bf86bf780d6f4c857f1c6b` (workflow commit `6def65d` upload the bin + `aa09cf4` receipt row) | `37690147169` success on `aa09cf4…` |
 
 (The release-evidence docs commits pushed after `b31a8ab…` are named in
 `HANDOFF.md` and `docs/pipico/release/`; they are documentation-only and
@@ -171,22 +172,25 @@ change no build input. Their push receipt row above was appended by the
 final publication feature once the run was observed, as every row above
 was. A commit cannot contain the run id of its own push, so each
 publication push's receipt row is appended by the following commit; the
-receipt for the branch's final push is recorded in the mission
-publication record.)
+receipts for the final publication pushes (the draft-PR and final
+documentation commits of `m5-push-ci-and-draft-prs`) are recorded in the
+mission publication record.)
 
 Notes:
 
-- The final root CI run observed so far is `37687857080` (workflow
+- The final root CI run observed so far is `37690147169` (workflow
   `pipico.yml`, branch `pipico/integration-v1`, head
-  `5ba8b086972ebe931c74352e8930b9f19a71dd87`): it concluded success with
-  the release-evidence artifact; its receipts showed root host ctest
-  67/67, pytest 348 passed / 3 skipped / 0 failed / 0 errors plus the
-  single deselected vault test (junit receipt: 348 + 3 + 1 testcases),
-  `bun test` 315 pass / 0 fail, bounds self-test 17/17 and the budget
-  gate OK (RAM +20 B / 8192, flash +1192 B / 65536). The earlier
-  runs `37682443999` (head `5833bc2…`) and `37685884106` (head
-  `b31a8ab…`) were green with byte-identical firmware artifacts (both
-  artifact sets downloaded and compared). The release bundle built from
+  `aa09cf4f28ea63d909bf86bf780d6f4c857f1c6b`): it concluded success with
+  the release-evidence artifact (the first that also uploads
+  `pico_fido.bin`); its receipts showed root host ctest 67/67, pytest
+  348 passed / 3 skipped / 0 failed / 0 errors plus the single
+  deselected vault test (junit receipt: 348 + 3 + 1 testcases), `bun
+  test` 315 pass / 0 fail, bounds self-test 17/17 and the budget gate OK
+  (RAM +20 B / 8192, flash +1192 B / 65536). The earlier runs
+  `37682443999` (head `5833bc2…`), `37685884106` (head `b31a8ab…`) and
+  `37687857080` (head `5ba8b08…`) were green with byte-identical
+  firmware artifacts (each artifact's `manifest.txt` hashes re-verified;
+  the uf2/elf downloaded and compared). The release bundle built from
   `b31a8ab…` lives in `docs/pipico/release/`.
 - The last SDK CI observation is run `37685874677` (success) on
   `pipico/companion-hooks` @ `654fbda…` (a README-only commit on top of
@@ -196,16 +200,29 @@ Notes:
 
 ## PROPOSED (not yet evidenced)
 
-- **Draft PRs** into each fork's `main` — final M5 release feature. The
-  **root CI workflow** (`pipico.yml`) is OBSERVED: pushed and green on
-  `5833bc2…` (run `37682443999`) and on `b31a8ab…` (run `37685884106`,
-  see the push receipts above).
 - **HARDWARE TESTED / HOST INSTALLED / FLASHED / ACCOUNT ENROLLED** — NOT_RUN
   for the whole mission (no board, no Mac).
 - USB product string "Yusoofs Pipico": the compile definition
   (`USB_PRODUCT_STRING`, root `CMakeLists.txt:99`) is SOURCE REVIEWED and the
   image is BUILT with it; USB enumeration with that string on a real host is
   HARDWARE TESTED = NOT_RUN.
+
+## OBSERVED (M5 release): draft PRs
+
+- **Draft PRs created, never merged** (2026-10-07, feature
+  `m5-push-ci-and-draft-prs`):
+  - pico-fido: [`pipico/integration-v1` → `main`,
+    draft PR 1](https://github.com/yusoofsh/pico-fido/pull/1) — head
+    tracks the branch tip (verified `headRefOid` == remote head at
+    handoff), body describes the whole branch relative to `main`.
+  - pico-keys-sdk: [`pipico/companion-hooks` → `main`,
+    draft PR 1](https://github.com/yusoofsh/pico-keys-sdk/pull/1) — head
+    `654fbda…`, body covers flash_layout, the reordered `low_flash_init`,
+    host tests and CI, and the companion hooks/keyboard transmitter.
+  The **root CI workflow** (`pipico.yml`) is OBSERVED: pushed and green on
+  `5833bc2…` (run `37682443999`), on `b31a8ab…` (run `37685884106`), on
+  `5ba8b08…` (run `37687857080`) and on `aa09cf4…` (run `37690147169`),
+  see the push receipts above.
 
 ## OBSERVED (M5 release): reproducibility comparison and release evidence
 
