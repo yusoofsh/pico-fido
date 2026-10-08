@@ -129,18 +129,50 @@ says nothing about the board's physical flash size.
 - **Emulation pytest suite** (the emulator listens on TCP 35962/35963; the
   CCID tests talk through pcscd with the vpcd virtual-reader driver, which
   must be installed for pcscd): build the emulator as above (`build-emu`).
-  Start pcscd explicitly and stop it by its own PID — `run-emu-tests.sh`
-  starts and stops only the emulator:
-  `setsid sudo -n /usr/sbin/pcscd -f --disable-polkit &` (find it with
-  `pgrep -x pcscd`, stop with `sudo -n kill <pid>`). Then run
-  `PIPICO_EMULATOR=build-emu/pico_fido PYTEST=/path/to/pytest
-  scripts/pipico/run-emu-tests.sh`: it starts the emulator with a fresh
-  `memory.flash`, runs the upstream python-fido2 suite plus `tests/pipico/`
-  (deselecting only the vault test that needs CI secrets) and stops the
-  emulator by its PID. `PIPICO_EMULATOR` must match the build directory used
-  above (the script's default is `build/pico_fido`); `PYTEST` must point at
-  a `pytest` whose Python has the `fido2` package installed (plain `pytest`
-  on `PATH` where that is already set up).
+  The Python environment is the CI recipe from `.github/workflows/pipico.yml`
+  ("Run the emulation python-fido2 suite") — a bare `pip install fido2` is
+  not enough. In a fresh virtual environment created in the repo root
+  (`python3 -m venv .venv-emu`; the default venv does **not** see system
+  site packages), without any other environment setup:
+
+  1. Install the CI-pinned packages (all are required: `tests/conftest.py`
+     imports `inputimeout` at load time, and the CCID tests need `pyscard`):
+     ```sh
+     .venv-emu/bin/python -m pip install fido2==2.2.1 pytest==9.1.1 \
+       pyscard==2.3.1 pyelftools==0.33 inputimeout==1.0.4 cryptography==50.0.2
+     ```
+  2. Install the vault enroller package — pytest imports it at collection
+     time even though the vault test itself is deselected (it needs CI
+     secrets to run):
+     ```sh
+     .venv-emu/bin/python -m pip install \
+       "pico-vault-enroller @ git+https://github.com/polhenarejos/pico-vault-enroller.git@79b1f1552d8f3824b7b7c81d19c37e7466fcbcc2"
+     ```
+  3. Copy the upstream TCP emulation transport (`tests/docker/fido2/`)
+     over the installed fido2 HID modules — without it, fido2 does not
+     reach the emulator on TCP:
+     ```sh
+     cp tests/docker/fido2/*.py "$(.venv-emu/bin/python -c 'import fido2, os; print(os.path.join(os.path.dirname(fido2.__file__), "hid"))')"/
+     ```
+  4. Start pcscd explicitly and stop it by its own PID — `run-emu-tests.sh`
+     starts and stops only the emulator. If pcscd is socket-activated
+     (`systemctl is-active pcscd.socket`), stop that first
+     (`sudo systemctl stop pcscd.socket pcscd.service`), then run
+     `setsid sudo -n /usr/sbin/pcscd -f --disable-polkit &` (find it with
+     `pgrep -x pcscd`, stop with `sudo -n kill <pid>`).
+  5. Run the suite:
+     `PIPICO_EMULATOR=build-emu/pico_fido PYTEST=.venv-emu/bin/pytest
+     scripts/pipico/run-emu-tests.sh` — it starts the emulator with a
+     fresh `memory.flash`, runs the upstream python-fido2 suite plus
+     `tests/pipico/` (deselecting only the vault test that needs CI
+     secrets) and stops the emulator by its PID.
+
+  `PIPICO_EMULATOR` must match the build directory used above (the
+  script's default is `build/pico_fido`); `PYTEST` must point at the
+  `pytest` of the venv prepared in steps 1–3. Expected result: **348
+  passed, 3 skipped, 1 deselected, 0 failed** — validated 2026-10-08 in a
+  fresh venv built only from these steps
+  ([`docs/pipico/release/venv-pytest-receipt.md`](docs/pipico/release/venv-pytest-receipt.md)).
 - **Host CLI**: in `host/`, `bun test` and `bunx tsc --noEmit`.
 
 `HARDWARE-TESTS.md` is the checklist for the board and Mac checks (G1,

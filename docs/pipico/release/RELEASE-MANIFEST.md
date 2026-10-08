@@ -79,13 +79,18 @@ cause and both comparison hashes: `reproducibility.md`), so each entry
 names the file, its hash and the build (source SHA + build path) that
 produced it.
 
-Released artifacts are byte-identical across every successful run of
-this branch since `5833bc2…` (docs-only and workflow-only commits change
-no build input; verified by download each time). All of those runs built
-on the same UTC date (2026-10-07): the Pico SDK embeds the compiler build
-date (`__DATE__`, via `bi_program_build_date_string`) in the image, so
-this is a same-path, same-date stability observation — not evidence about
-different dates and not a reproducibility guarantee (`reproducibility.md`).
+The released binaries were byte-identical across every successful push
+run of this branch observed to date, from `5833bc2…` through `ecb5608…`
+(runs `37682443999`, `37685884106`, `37687857080`, `37690147169`,
+`37691662474`, `37693278603` and `37701519316`; each verified by
+downloading its artifact — for the `.bin`, downloaded evidence exists
+from run `37690147169` on, manifest-only before). All of those runs
+built on the same UTC date (2026-10-07): the Pico SDK embeds the
+compiler build date (`__DATE__`, via `bi_program_build_date_string`) in
+the image, so this is a same-path, same-date stability observation — a
+run on a later build date is expected to produce different hashes, and
+the observation is not evidence about different dates and not a
+reproducibility guarantee (`reproducibility.md`).
 The hashes below were verified against the **actually downloaded files**
 of run `37690147169` (workflow `pipico`, root
 `aa09cf4f28ea63d909bf86bf780d6f4c857f1c6b`, the run that first uploaded
@@ -173,10 +178,11 @@ Runs `37687857080` (head `5ba8b08…`) and `37690147169` (head `aa09cf4…`,
 the first with the `.bin` uploaded — see §4) concluded **success** with
 the same counts and byte-identical `uf2`/`elf` files (for run
 `37687857080` the `.bin` was manifest-only, as in every run before
-`37690147169`); the push run `37693278603` on the last documentation-only
-head before the correction round (`0e74670…`) concluded **success** with
-the same downloaded hashes. Docs-only commits and README-only SDK
-gitlink bumps change no build input, so the artifact of the branch's
-final head carries the same binaries as well (the final artifact
-manifest of the final successful push run is the authoritative final
-tuple).
+`37690147169`); the push runs `37693278603` (`0e74670…`) and
+`37701519316` (`ecb5608…`, the head before this documentation commit)
+concluded **success** with the same downloaded hashes. Every run named
+in this manifest built on 2026-10-07 UTC and the image embeds `__DATE__`,
+so this equality is run- and date-labelled observed history: no equality
+is predicted for later runs, and the hashes of a later head are those in
+its own final successful push-run artifact manifest (the authoritative
+final tuple for that head).

@@ -78,6 +78,12 @@ deselected vault test).
 CI junit receipt (artifact of run `37685884106`, `pytest-receipt.xml`):
 `tests=371, failures=0, errors=0, skipped=3`.
 
+Fresh-venv validation of the documented Python setup (2026-10-08, UTC: a
+new `python3 -m venv` with only the README steps — no mission
+environment, no `$PYENV`, no system site packages): the same counts,
+**348 passed, 3 skipped, 1 deselected, 0 failed**. Exact commands and
+environment: `venv-pytest-receipt.md` in this directory.
+
 ## Host CLI tests and typecheck (b31a8ab)
 
 Commands (in `rb1/host`):
@@ -101,6 +107,8 @@ exit 0); `tsc --noEmit` clean (exit 0).
 | `37690147169` | pico-fido / `pipico` | `aa09cf4f28ea63d909bf86bf780d6f4c857f1c6b` | **success** | same counts; first artifact that also uploads `pico_fido.bin` (all three hashes re-verified against the downloaded files) |
 | `37691662474` | pico-fido / `pipico` | `5e250a559f8b7436cef8be8af9644e257e72d649` (push) | **success** | same counts; artifact `manifest.txt` records `root-sha: 5e250a5…`, `sdk-gitlink: 654fbda…`; all three binary hashes re-verified against the downloaded files |
 | `37693278603` | pico-fido / `pipico` | `0e74670d0965662563f1bfcb1811834568acde27` (push) | **success** | same counts (verified again in the correction session: run metadata `conclusion=success` on that headSha) |
+| `37701399155` | pico-keys-sdk / `pipico-sdk-tests` | `e96e50208d6dcc78baa69c52de1e3340fd17749b` (push, README-only commit) | **success** (2026-10-07) | "100% tests passed, 0 tests failed out of 47" (from the run log) |
+| `37701519316` | pico-fido / `pipico` | `ecb56086a3b6af120cb815dbbec9cebbea2d3c03` (push) | **success** (2026-10-07) | same counts; artifact downloaded and re-verified: junit 351 testcases = 348 passed + 3 skipped (the junit `tests="371"` attribute overcounts the element list by 20), root ctest "out of 67", bun 315 pass; all three binary hashes equal to §4 of `RELEASE-MANIFEST.md` |
 
 The draft PRs also triggered `pull_request`-event runs of the same
 workflow (contents: read); they concluded success too. A `pull_request`
@@ -109,15 +117,18 @@ run checks out GitHub's ephemeral merge commit, so its artifact
 push-event run of the same head is the release-evidence source.
 
 The documentation-only commits after the built SHA (each named in
-`HANDOFF.md`) change no build input, so the artifacts of their push runs
-carry the same binaries with the same hashes (§4 of
+`HANDOFF.md`) change no build input; their push runs observed to date —
+through run `37701519316` (head `ecb5608…`, built 2026-10-07 UTC) — each
+concluded success and the downloaded `uf2`/`elf` (and, from run
+`37690147169` on, `bin`) files hashed to the same values (§4 of
 `RELEASE-MANIFEST.md`); the receipt row for each pushed range is
 appended by the following commit, and the receipt of the newest push is
 recorded in the mission publication record until the next docs commit
 lands. All runs cited in this file built within the same UTC date
 (2026-10-07); the Pico SDK embeds the compiler build date (`__DATE__`)
 in the image, so the byte-equality observations are same-date
-observations (`reproducibility.md`).
+observations and no equality is predicted for later runs
+(`reproducibility.md`).
 
 Both runs also confirm the earlier observation on the same build inputs:
 runs `37682443999` (source `5833bc2`) and `37685884106` uploaded

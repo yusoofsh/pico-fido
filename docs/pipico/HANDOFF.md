@@ -1,6 +1,9 @@
 # Yusoofs Pipico V1: handoff and gate statuses
 
-Status snapshot written **2026-10-07** by the release docs feature. It states
+Status snapshot written **2026-10-07** by the release docs feature; the
+binary-equality and publication statements were re-labelled as
+run/date-labelled observed history through push run `37701519316`
+(2026-10-07) in the 2026-10-08 correction round. It states
 the mission's gate statuses in the status vocabulary below, with the evidence
 for every claim. Numbers in this file were re-verified in the writing session
 (`git rev-parse`, `gh run list`, `gh run view --log` greps); the receipts they
@@ -11,7 +14,7 @@ come from are in `MANIFEST.md`.
 | Status | State | Evidence |
 |---|---|---|
 | SOURCE REVIEWED | achieved | every mission commit reviewed on `pipico/storage-baseline` / `pipico/companion-hooks` (SDK) and `pipico/integration-v1` (root); docs in `docs/pipico/` cite SHAs, not claims |
-| BUILT | achieved | `scripts/pipico/build.sh` exit 0, zero CMake/compiler warnings; root CI run [`37685884106`](https://github.com/yusoofsh/pico-fido/actions/runs/37685884106) (build + gates) green on `b31a8ab969536d754a7737c3ffe12bf7c6e3da5f`; also green on `5833bc2…` (run `37682443999`) and on every later evidence-only head — `5ba8b08…` (run `37687857080`), `aa09cf4…` (run `37690147169`) and the final head's run (see "Final SHAs", definitive runs) — and reproduced in two fresh-clone builds (`docs/pipico/release/`) |
+| BUILT | achieved | `scripts/pipico/build.sh` exit 0, zero CMake/compiler warnings; root CI run [`37685884106`](https://github.com/yusoofsh/pico-fido/actions/runs/37685884106) (build + gates) green on `b31a8ab969536d754a7737c3ffe12bf7c6e3da5f`; also green on the other evidence-only heads — `5833bc2…` (run `37682443999`), `5ba8b08…` (run `37687857080`), `aa09cf4…` (run `37690147169`), `5e250a5…` (run `37691662474`), `0e74670…` (run `37693278603`) and `ecb5608…` (run [`37701519316`](https://github.com/yusoofsh/pico-fido/actions/runs/37701519316); enumeration in "Final SHAs") — and it also built successfully in two fresh-clone builds whose hashes **differ** (build-path strings; **no reproducibility claim**, `docs/pipico/release/reproducibility.md`) |
 | AUTOMATED TESTS PASSED | achieved | same CI run `37685884106`: SDK ctest 47/47 (run [`37685874677`](https://github.com/yusoofsh/pico-keys-sdk/actions/runs/37685874677) on SDK `654fbda1046c0dba3832ff520f7d1ea25d1df45b`), root host ctest 67/67, emulation pytest 348 passed / 3 skipped / 1 deselected / 0 failed, `bun test` 315 pass / 0 fail, image-bounds self-test 17/17, budget gate OK (RAM delta 20 B ≤ 8192, flash delta 1192 B ≤ 65536); the same counts were re-observed on runs `37687857080` and `37690147169` (final heads: see "Final SHAs"); full commands and counts: `docs/pipico/release/test-receipts.md` |
 | HARDWARE TESTED | **NOT_RUN** | no YD-RP2040 board attached; the board-side checklist lives in `HARDWARE-TESTS.md` (G1, G5–G10) |
 | HOST INSTALLED | **NOT_RUN** | no Mac attached; the Mac-side checklist lives in `HARDWARE-TESTS.md` (G11, G12); the CLI was exercised only on Linux with the fake platform and a temp `$HOME` |
@@ -55,42 +58,53 @@ software levels stand on the final tuple too.
   release-evidence manifest/handoff refresh), `6def65d` ("ci: upload
   pico_fido.bin", an artifact-collection-only workflow change), `aa09cf4`
   (the `MANIFEST.md` push-receipt row), `5e250a5` (the draft-PR and
-  bin-upload receipt docs) and `0e74670` (the final-head run and
-  pre-existing-upstream-PR docs) — all six are docs-only or
-  artifact-collection-only and change no build input — then the
-  documentation-correction commits: `6218308` (a gitlink-only bump to SDK
+  bin-upload receipt docs), `0e74670` (the final-head run and
+  pre-existing-upstream-PR docs), `6218308` (a gitlink-only bump to SDK
   `e96e50208d6dcc78baa69c52de1e3340fd17749b`, a README-only SDK commit on
   top of `654fbda…` that changes no compiled input), `9e0ff77` and
   `7f02b07` (checklist/README corrections, docs-only), `d0d8d9d`
   (bin-provenance and build-date corrections in the release bundle,
-  docs-only) and `bd0d5ad` (API-disabled workflow states and the date
-  caveat, docs-only) — and this documentation commit, which completes the
-  enumeration; its eventual SHA
-  and the final successful run are recorded in the mission publication
+  docs-only), `bd0d5ad` (API-disabled workflow states and the date
+  caveat, docs-only) and `ecb5608` (the MANIFEST terminal push-receipt
+  row for run `37693278603` and the complete evidence-only enumeration —
+  the predecessor of this commit) — all twelve are docs-only or
+  artifact-collection-only and change no build input — and this
+  documentation commit (the README Python-environment recipe validated in
+  a fresh venv with its receipt, and the run/date-labelled
+  binary-equality history), which completes the enumeration; its eventual
+  SHA and the final successful run are recorded in the mission publication
   record (a commit cannot contain the run id of its own push). The
-  published push of this branch ended at `0e74670…` with green run
-  `37693278603` (push event, verified); the correction commits above are
-  published by the final publication feature, which records their receipt
-  the same way. Binaries of runs `37682443999` (source `5833bc2`),
+  published push of this branch observed to date ended at `ecb5608…` with
+  green run `37701519316` (push event, 2026-10-07, verified); the
+  publication feature records the receipt of any later push the same way.
+  Binaries of runs `37682443999` (source `5833bc2`),
   `37685884106` (`b31a8ab`), `37687857080` (`5ba8b08`) and `37690147169`
   (`aa09cf4`) were downloaded and re-hashed in the handoff session —
   `uf2`/`elf` are byte-identical across all four; the `bin` file was not
   uploaded before run `37690147169` (its hash was recorded in each
   artifact's `manifest.txt` only) and the downloaded `bin` of run
-  `37690147169` hashes exactly to that recorded value. README-only SDK
-  commits change no compiled input, so these observations carry over to
-  the later gitlink bumps; the final artifact manifest of the final
-  successful push run remains the authoritative final tuple.
+  `37690147169` hashes exactly to that recorded value. The same three
+  hashes were re-verified against the downloaded files of the last push
+  run observed to date, `37701519316` (source `ecb5608…`, built
+  2026-10-07 UTC): `uf2` `cfbaa430…`, `elf` `5e872a1c…`, `bin`
+  `ce8b8be4…`, each equal to that artifact's `manifest.txt`. These are
+  run- and date-labelled observed history, not a prediction about later
+  runs: every run named in this handoff built on 2026-10-07 UTC and the
+  image embeds the compiler build date (`__DATE__`), so the equality is
+  a same-date observation and a later build date is expected to change
+  the hashes. The hashes of any later head are those recorded in its own
+  final successful push-run artifact manifest.
 - **SDK SHA**: `654fbda1046c0dba3832ff520f7d1ea25d1df45b` (head of
   `pipico/companion-hooks`, CI run `37685874677` green on it; a README-only
   commit on top of `3201dbd0e6972a97510c08d21d1386de130c62e2`) was the
   gitlink of the published root heads through `0e74670…`. The
-  documentation-correction round adds one more README-only SDK commit,
+  documentation-correction round added one more README-only SDK commit,
   `e96e50208d6dcc78baa69c52de1e3340fd17749b` (host-test preclone
-  instructions, publication order, two-checkout note), and bumps the root
-  gitlink to it (`6218308`); publishing that SDK commit first, observing
-  its CI run and pushing the root branch belong to the final publication
-  feature. The fresh-clone builds resolved `654fbda…` exactly.
+  instructions, publication order, two-checkout note), and bumped the root
+  gitlink to it (`6218308`); that SDK commit was pushed first with green
+  run [`37701399155`](https://github.com/yusoofsh/pico-keys-sdk/actions/runs/37701399155)
+  (2026-10-07, verified), before the root push through `ecb5608…` (run
+  `37701519316`). The fresh-clone builds resolved `654fbda…` exactly.
   `pipico/storage-baseline` remains a separate remote branch at
   `a1eb8cf541bae2575985e1b18fb97ced670193bb`; it is an **ancestor** of
   the tested `pipico/companion-hooks` head (`git merge-base
