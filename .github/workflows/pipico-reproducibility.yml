@@ -1,0 +1,168 @@
+# Separate experiment; the existing pipico workflow runs the full V1 regressions.
+name: pipico-reproducibility
+
+on:
+  push:
+    branches: [pipico/reproducible-builds]
+
+permissions:
+  contents: read
+
+env:
+  PIPICO_V1_SHA: 880eaab4d474126f6807c3b14e1352cf892ede84
+  PICOKEYS_SDK_SHA: e96e50208d6dcc78baa69c52de1e3340fd17749b
+  PICO_SDK_SHA: 079c6f39023649b154152db30f1d781e884879bc
+  PICO_TINYUSB_SHA: 86ad6e56c1700e85f1c5678607a762cfe3aa2f47
+  PICOTOOL_SHA: 2041936441b48a3cc53ae3da9e805229fe8f4e18
+  MBEDTLS_SHA: 068ff080b369adfac81509f9b57b2afabaf82dc5
+  TINYCBOR_SHA: c0aad2fb2137a31b9845fbaae3653540c410f215
+  ARM_TC_SHA256: 6cd1bbc1d9ae57312bcd169ae283153a9572bd6a8e4eeae2fedfbc33b115fdbb
+  PIPICO_JOBS: 2
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  reproducibility-and-supplementary-gates:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - name: Initialize evidence outside the source tree
+        run: |
+          mkdir -p "$RUNNER_TEMP/pipico-reproducibility-evidence/supplementary"
+          echo "PIPICO_EVIDENCE_DIR=$RUNNER_TEMP/pipico-reproducibility-evidence" >> "$GITHUB_ENV"
+          printf 'source-sha: %s\nrun: %s/%s/actions/runs/%s\n' \
+            "$GITHUB_SHA" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" \
+            > "$RUNNER_TEMP/pipico-reproducibility-evidence/workflow.txt"
+
+      - name: Check out the experiment with the recorded submodule gitlinks
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Assert the V1 baseline and unchanged SDK pin
+        run: |
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor "$PIPICO_V1_SHA" HEAD
+          test "$(git ls-tree HEAD pico-keys-sdk | awk '{print $3}')" = "$PICOKEYS_SDK_SHA"
+          test "$(git -C pico-keys-sdk rev-parse HEAD)" = "$PICOKEYS_SDK_SHA"
+          printf 'verified-source-sha: %s\ngit-history-count: %s\n' \
+            "$(git rev-parse HEAD)" "$(git rev-list --count HEAD)" \
+            >> "$PIPICO_EVIDENCE_DIR/workflow.txt"
+          git submodule status --recursive | tee "$PIPICO_EVIDENCE_DIR/supplementary/submodules.txt"
+          ! git submodule status --recursive | grep -Eq '^[+U-]'
+
+      - name: Install the checksum-verified Arm GNU Toolchain 13.2.Rel1
+        run: |
+          archive="$RUNNER_TEMP/arm-toolchain.tar.xz"
+          curl -fsSLo "$archive" \
+            https://developer.arm.com/-/media/Files/downloads/gnu/13.2.rel1/binrel/arm-gnu-toolchain-13.2.rel1-x86_64-arm-none-eabi.tar.xz
+          echo "$ARM_TC_SHA256  $archive" | sha256sum -c -
+          tar -xJf "$archive" -C "$RUNNER_TEMP"
+          tc="$RUNNER_TEMP/arm-gnu-toolchain-13.2.Rel1-x86_64-arm-none-eabi/bin"
+          test "$("$tc/arm-none-eabi-gcc" -dumpfullversion)" = 13.2.1
+          echo "$tc" >> "$GITHUB_PATH"
+          "$tc/arm-none-eabi-gcc" --version > "$PIPICO_EVIDENCE_DIR/supplementary/arm-toolchain.txt"
+
+      - name: Install the pinned Pico SDK 2.3.1 and its recursive submodules
+        run: |
+          git clone -q https://github.com/raspberrypi/pico-sdk "$RUNNER_TEMP/pico-sdk"
+          git -C "$RUNNER_TEMP/pico-sdk" checkout -q "$PICO_SDK_SHA"
+          git -C "$RUNNER_TEMP/pico-sdk" submodule update --init --recursive
+          test "$(git -C "$RUNNER_TEMP/pico-sdk" rev-parse HEAD)" = "$PICO_SDK_SHA"
+          test "$(git -C "$RUNNER_TEMP/pico-sdk/lib/tinyusb" rev-parse HEAD)" = "$PICO_TINYUSB_SHA"
+          echo "PICO_SDK_PATH=$RUNNER_TEMP/pico-sdk" >> "$GITHUB_ENV"
+          git -C "$RUNNER_TEMP/pico-sdk" submodule status --recursive \
+            > "$PIPICO_EVIDENCE_DIR/supplementary/pico-sdk-submodules.txt"
+          ! grep -Eq '^[+U-]' "$PIPICO_EVIDENCE_DIR/supplementary/pico-sdk-submodules.txt"
+
+      - name: Install ARM build and standalone SDK test packages
+        run: |
+          for attempt in 1 2 3; do
+            if timeout 240 sudo apt-get update -q && \
+               timeout 300 sudo apt-get install -y ninja-build help2man libusb-1.0-0-dev; then
+              break
+            fi
+            [ "$attempt" = 3 ] && exit 1
+            sleep 10
+          done
+
+      - name: Build the pinned picotool 2.3.1 with a flat install
+        run: |
+          git clone -q https://github.com/raspberrypi/picotool "$RUNNER_TEMP/picotool-src"
+          git -C "$RUNNER_TEMP/picotool-src" checkout -q "$PICOTOOL_SHA"
+          test "$(git -C "$RUNNER_TEMP/picotool-src" rev-parse HEAD)" = "$PICOTOOL_SHA"
+          cmake -S "$RUNNER_TEMP/picotool-src" -B "$RUNNER_TEMP/picotool-build" \
+            -DPICO_SDK_PATH="$PICO_SDK_PATH" -DPICOTOOL_FLAT_INSTALL=1 -DCMAKE_BUILD_TYPE=Release
+          cmake --build "$RUNNER_TEMP/picotool-build" -j2
+          cmake --install "$RUNNER_TEMP/picotool-build" --prefix "$RUNNER_TEMP/picotool"
+          echo "PICOTOOL_DIR=$RUNNER_TEMP/picotool/picotool" >> "$GITHUB_ENV"
+          echo "PICOTOOL_SOURCE_PATH=$RUNNER_TEMP/picotool-src" >> "$GITHUB_ENV"
+          "$RUNNER_TEMP/picotool/picotool/picotool" version \
+            | tee "$PIPICO_EVIDENCE_DIR/supplementary/picotool-version.txt"
+
+      - name: Fetch and assert the pinned firmware dependencies
+        id: environment
+        run: |
+          git clone -q --depth 1 -b v3.6.7 https://github.com/Mbed-TLS/mbedtls.git pico-keys-sdk/third-party/mbedtls
+          git clone -q --depth 1 -b v0.6.1 https://github.com/intel/tinycbor.git pico-keys-sdk/third-party/tinycbor
+          test "$(git -C pico-keys-sdk/third-party/mbedtls rev-parse HEAD)" = "$MBEDTLS_SHA"
+          test "$(git -C pico-keys-sdk/third-party/tinycbor rev-parse HEAD)" = "$TINYCBOR_SHA"
+          printf 'REPO=%s\nREF=%s\n' https://github.com/Mbed-TLS/mbedtls.git v3.6.7 \
+            > pico-keys-sdk/third-party/mbedtls/.picokeys_dep_source
+          printf 'REPO=%s\nREF=%s\n' https://github.com/intel/tinycbor.git v0.6.1 \
+            > pico-keys-sdk/third-party/tinycbor/.picokeys_dep_source
+          printf 'pico-keys-sdk: %s\npico-sdk: %s\ntinyusb: %s\npicotool: %s\nmbedtls: %s\ntinycbor: %s\n' \
+            "$PICOKEYS_SDK_SHA" "$PICO_SDK_SHA" "$PICO_TINYUSB_SHA" "$PICOTOOL_SHA" "$MBEDTLS_SHA" "$TINYCBOR_SHA" \
+            > "$PIPICO_EVIDENCE_DIR/supplementary/asserted-pins.txt"
+
+      - name: Run supplementary clock and budget gate regressions
+        if: ${{ !cancelled() && steps.environment.outcome == 'success' }}
+        run: |
+          failed=0
+          run_gate() {
+            local receipt=$1
+            shift
+            if ! "$@" 2>&1 | tee "$PIPICO_EVIDENCE_DIR/supplementary/$receipt"; then
+              failed=1
+            fi
+          }
+          run_gate clock-self-test.log python3 scripts/pipico/check-clock.py --self-test
+          run_gate budget-self-test.log bash scripts/pipico/check-budget.sh --self-test
+          run_gate clock-override-test.log python3 tests/test_clock_override.py
+          exit "$failed"
+
+      - name: Run the standalone SDK host tests
+        if: ${{ !cancelled() && steps.environment.outcome == 'success' }}
+        run: |
+          cmake -S pico-keys-sdk/tests -B "$RUNNER_TEMP/pipico-sdk-tests" -G Ninja \
+            2>&1 | tee "$PIPICO_EVIDENCE_DIR/supplementary/sdk-configure.log"
+          ninja -C "$RUNNER_TEMP/pipico-sdk-tests" -j2 \
+            2>&1 | tee "$PIPICO_EVIDENCE_DIR/supplementary/sdk-build.log"
+          ctest --test-dir "$RUNNER_TEMP/pipico-sdk-tests" --output-on-failure -j2 \
+            2>&1 | tee "$PIPICO_EVIDENCE_DIR/supplementary/sdk-ctest.log"
+
+      - name: Run the flash-size-limit regression with its UBSan harness
+        if: ${{ !cancelled() && steps.environment.outcome == 'success' }}
+        run: |
+          CC=gcc python3 pico-keys-sdk/tests/test_flash_size_limit.py \
+            2>&1 | tee "$PIPICO_EVIDENCE_DIR/supplementary/flash-size-limit-ubsan.log"
+
+      - name: Compare fresh builds across source paths and controlled build dates
+        if: ${{ !cancelled() && steps.environment.outcome == 'success' }}
+        run: |
+          python3 scripts/pipico/check-reproducibility.py \
+            --work-dir "$RUNNER_TEMP/pipico-repro-work" \
+            --output-dir "$PIPICO_EVIDENCE_DIR/experiment" \
+            2>&1 | tee "$PIPICO_EVIDENCE_DIR/experiment-runner.log"
+
+      - name: Upload experiment binaries, reports, and supplementary gate logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pipico-reproducibility-evidence
+          path: ${{ runner.temp }}/pipico-reproducibility-evidence/
+          if-no-files-found: warn

@@ -60,6 +60,7 @@ cmake -S "$root" -B "$build_dir" -G Ninja \
   -DENABLE_OATH_APP=ON \
   -DENABLE_OTP_APP=ON \
   -DPIPICO_COMPANION=ON \
+  -DPIPICO_REPRODUCIBLE_BUILD=ON \
   -Dpicotool_DIR="$PICOTOOL_DIR" \
   -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
   "$@" 2>&1 | tee "$configure_log"
@@ -116,6 +117,7 @@ tuple_file="$build_dir/pipico-build-tuple.txt"
   echo "ENABLE_OATH_APP=ON"
   echo "ENABLE_OTP_APP=ON"
   echo "PIPICO_COMPANION=$companion"
+  grep '^PIPICO_REPRODUCIBLE_BUILD:BOOL=' "$build_dir/CMakeCache.txt"
   echo "ENABLE_EDDSA: not enabled (off by default)"
 } | tee "$tuple_file"
 
