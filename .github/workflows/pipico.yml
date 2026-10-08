@@ -36,6 +36,7 @@ jobs:
       - name: Check out the pushed commit with submodules at the recorded gitlinks
         uses: actions/checkout@v4
         with:
+          fetch-depth: 0 # Reproducible build number uses the full source history.
           submodules: recursive
           persist-credentials: false
 

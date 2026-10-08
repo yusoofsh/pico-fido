@@ -17,6 +17,8 @@
 
 cmake_minimum_required(VERSION 3.13)
 
+option(PIPICO_REPRODUCIBLE_BUILD "Normalize firmware paths and omit build-date metadata" OFF)
+
 set(USB_VID 0x2E8A)
 set(USB_PID 0x10FE)
 
@@ -31,6 +33,27 @@ else()
             set(PICO_USE_FASTEST_SUPPORTED_CLOCK 1)
         endif()
         include(pico_sdk_import.cmake)
+
+        if(PIPICO_REPRODUCIBLE_BUILD)
+            # SET_BUILD_NUMBER uses the reachable commit count. A shallow
+            # checkout changes that metadata even at the same source SHA.
+            execute_process(COMMAND git rev-parse --is-shallow-repository
+                WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+                OUTPUT_VARIABLE PIPICO_SHALLOW_REPOSITORY
+                OUTPUT_STRIP_TRAILING_WHITESPACE
+                RESULT_VARIABLE PIPICO_GIT_RESULT)
+            if(NOT PIPICO_GIT_RESULT EQUAL 0 OR NOT PIPICO_SHALLOW_REPOSITORY STREQUAL "false")
+                message(FATAL_ERROR "Reproducible builds require full Git history for the build number; fetch with --unshallow")
+            endif()
+            # Apply before creating targets so SDK/static-library debug paths
+            # are normalized too. Later maps win for nested SDK/build roots.
+            add_compile_options(
+                "-ffile-prefix-map=${CMAKE_CURRENT_SOURCE_DIR}=."
+                "-ffile-prefix-map=${PICO_SDK_PATH}=./pico-sdk"
+                "-ffile-prefix-map=${CMAKE_CURRENT_BINARY_DIR}=./build"
+            )
+            add_compile_definitions(PICO_NO_BI_PROGRAM_BUILD_DATE=1)
+        endif()
     endif()
 
     project(pico_fido C CXX ASM)
