@@ -26,6 +26,7 @@ permissions:
 
 jobs:
   build:
+    if: github.repository == 'polhenarejos/pico-fido'
 
     runs-on: ubuntu-latest
     permissions:

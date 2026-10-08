@@ -1,0 +1,65 @@
+{
+  "gate": "check-image-bounds",
+  "limits": {
+    "xip_base": "0x10000000",
+    "code_region_end_offset": "0x100000",
+    "marker_sector_abs": [
+      "0x10100000",
+      "0x10101000"
+    ],
+    "sector_bytes": 4096
+  },
+  "elf": {
+    "path": "build/arm-pipico/pico_fido.elf",
+    "crosscheck": "cross-checked 6 PT_LOAD row(s) against arm-none-eabi-readelf -lW; values match",
+    "class": "elf32",
+    "machine": 40,
+    "pt_load_count": 6,
+    "flash_pt_load_count": 2,
+    "segments": [
+      {
+        "index": 0,
+        "kind": "flash",
+        "vaddr": "0x10000000",
+        "lma": "0x10000000",
+        "filesz": "0x8371c",
+        "memsz": "0x8371c",
+        "write_end": "0x1008371c",
+        "end_offset": "0x8371c"
+      },
+      {
+        "index": 1,
+        "kind": "ram-vaddr-flash-lma (.data style)",
+        "vaddr": "0x200000e0",
+        "lma": "0x1008371c",
+        "filesz": "0x1da0",
+        "memsz": "0x19278",
+        "write_end": "0x100854bc",
+        "end_offset": "0x854bc"
+      }
+    ],
+    "max_write_end": "0x100854bc",
+    "max_end_offset": "0x854bc"
+  },
+  "uf2": {
+    "path": "build/arm-pipico/pico_fido.uf2",
+    "block_count": 2133,
+    "family_id": "0xe48bff56",
+    "payload_bytes": 546048,
+    "min_target": "0x10000000",
+    "max_target": "0x10085400",
+    "max_write_end": "0x10085500",
+    "max_end_offset": "0x85500"
+  },
+  "image": {
+    "write_end": "0x10085500",
+    "end_offset": "0x85500",
+    "limit_offset": "0x100000",
+    "within_limit": true,
+    "erase_footprint_end": "0x10086000",
+    "erase_footprint_end_offset": "0x86000",
+    "headroom_bytes": "0x7ab00"
+  },
+  "errors": [],
+  "verdict": "pass"
+}

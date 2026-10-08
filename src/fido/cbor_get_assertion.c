@@ -529,6 +529,7 @@ int cbor_get_assertion(const uint8_t *data, size_t len, bool next) {
                 }
             }
         }
+#ifndef FORCE_BUTTON_WAIT
         bool require_button = numberOfCredentials > 0 && (creds[0].require_button != NULL
             ? *creds[0].require_button
 #ifndef ENABLE_EMULATION
@@ -537,10 +538,35 @@ int cbor_get_assertion(const uint8_t *data, size_t len, bool next) {
             : false
 #endif
         );
+#endif
 
         if (options.up == ptrue || options.present == false || options.up == NULL) { //9.1
-            if (pinUvAuthParam.present == true) {
-                if (getUserPresentFlagValue() == false) {
+            if (!(flags & FIDO2_AUT_FLAG_UP)) {
+#ifdef FORCE_BUTTON_WAIT
+                /* Pipico UP policy: the BOOT touch is enforced for every
+                   assertion that requests user presence (up=true or
+                   omitted), whatever the credential's own require_button
+                   flag says and even with a valid pinUvAuthParam.
+                   check_user_presence() honors FORCE_BUTTON_WAIT, so a
+                   configured timeout of 0 still waits (about 30 s). */
+                if (check_user_presence() == false) {
+                    CBOR_ERROR(CTAP2_ERR_OPERATION_DENIED);
+                }
+#ifndef ENABLE_EMULATION
+                button_pressed = true;
+#endif
+#else
+                if (pinUvAuthParam.present == true) {
+                    if (getUserPresentFlagValue() == false) {
+                        if (check_user_presence_for_credential(require_button) == false) {
+                            CBOR_ERROR(CTAP2_ERR_OPERATION_DENIED);
+                        }
+#ifndef ENABLE_EMULATION
+                        button_pressed = require_button && button_timeout_seconds() != 0;
+#endif
+                    }
+                }
+                else {
                     if (check_user_presence_for_credential(require_button) == false) {
                         CBOR_ERROR(CTAP2_ERR_OPERATION_DENIED);
                     }
@@ -548,16 +574,7 @@ int cbor_get_assertion(const uint8_t *data, size_t len, bool next) {
                     button_pressed = require_button && button_timeout_seconds() != 0;
 #endif
                 }
-            }
-            else {
-                if (!(flags & FIDO2_AUT_FLAG_UP)) {
-                    if (check_user_presence_for_credential(require_button) == false) {
-                        CBOR_ERROR(CTAP2_ERR_OPERATION_DENIED);
-                    }
-#ifndef ENABLE_EMULATION
-                    button_pressed = require_button && button_timeout_seconds() != 0;
 #endif
-                }
             }
             flags |= FIDO2_AUT_FLAG_UP;
             clearUserPresentFlag();

@@ -61,6 +61,131 @@ Microcontrollers RP2350 and ESP32-S3 are designed to support secure environments
 
 **However**, the RP2040 microcontroller lacks this level of security hardware, meaning that it cannot provide the same protection. Data stored on its flash memory, including private or master keys, can be easily accessed or dumped, as encryption of the master key itself is not feasible. Consequently, if an RP2040 device is stolen, any stored private or secret keys may be exposed.
 
+## Yusoofs Pipico V1 (this fork)
+
+This fork carries the **Yusoofs Pipico V1** work: a corrected and pinned
+flash-storage baseline (layout ID `yd4m-effective2m-marker-gap-v1`), enforced
+BOOT-button user presence, a small USR-button companion that types fixed
+F13–F16 keys, the `pipico` host CLI (see [`host/README.md`](host/README.md)),
+CI workflows and release evidence. It is built for the VCC-GND YD-RP2040
+board. Full documentation: [`docs/pipico/`](docs/pipico/) — start with
+[`BASELINE.md`](docs/pipico/BASELINE.md),
+[`LAYOUT.md`](docs/pipico/LAYOUT.md),
+[`HARDWARE-TESTS.md`](docs/pipico/HARDWARE-TESTS.md) and
+[`HANDOFF.md`](docs/pipico/HANDOFF.md).
+
+**Status: SOURCE REVIEWED · BUILT · AUTOMATED TESTS PASSED (software
+level). The firmware has NOT been flashed and NOT been hardware-tested
+(FLASHED and HARDWARE TESTED are NOT_RUN); the host CLI has not been
+installed on a Mac (HOST INSTALLED = NOT_RUN); nothing was enrolled
+(ACCOUNT ENROLLED = NOT_RUN).** Never flash this firmware over a device
+holding real credentials: flashing can reformat or repair storage and
+cross-flashing between layouts is forbidden (see
+[`docs/pipico/LAYOUT.md`](docs/pipico/LAYOUT.md)); a layout switch is
+re-enrollment, not a migration.
+
+### Build (one command)
+
+Prerequisites and pins: Arm GNU Toolchain 13.2.Rel1
+(`arm-none-eabi-gcc 13.2.1 20231009`), CMake and Ninja on `PATH`; Pico SDK
+2.3.1 (`079c6f39`, TinyUSB `86ad6e56`) and a standalone picotool 2.3.1
+build. **Both `PICO_SDK_PATH` and `PICOTOOL_DIR` must be set**
+(`PICOTOOL_DIR` is the directory holding the `picotool` binary and its CMake
+package config); `build.sh` exits nonzero without either. The build clones
+mbedtls 3.6.7 and tinycbor 0.6.1 at configure time (network needed once).
+The Pipico preset builds for `PICO_BOARD=vcc-gnd_yd-rp2040_4m` with
+`PICO_USE_FASTEST_SUPPORTED_CLOCK=0`, `PICO_FLASH_SIZE_LIMIT_BYTES=0x200000`,
+`FORCE_BUTTON_WAIT=ON`, `ENABLE_OATH_APP=ON`, `ENABLE_OTP_APP=ON`; the USB
+product string is "Yusoofs Pipico".
+
+```sh
+git clone --recurse-submodules -b pipico/integration-v1 https://github.com/yusoofsh/pico-fido
+cd pico-fido
+PICO_SDK_PATH=/path/to/pico-sdk/2.3.1 \
+PICOTOOL_DIR=/path/to/picotool/picotool \
+PATH=/path/to/arm-gnu-toolchain-13.2.Rel1-x86_64-arm-none-eabi/bin:$PATH \
+  scripts/pipico/build.sh
+```
+
+`build.sh` honours `PIPICO_BUILD_DIR` (default `build-pipico`), passes extra
+arguments through to CMake, exports `compile_commands.json`, and **exits
+nonzero on any CMake/compiler warning or failed gate**. Gates: image bounds
+(every write end at or below the **1 MiB code boundary**, offset `0x100000`
+from XIP_BASE), clocks (125 MHz system, 48 MHz USB) and the companion
+budget (≤ 8 KiB static RAM, ≤ 64 KiB flash). `PICO_FLASH_SIZE_LIMIT_BYTES=
+0x200000` is the **effective flash cap** (2 MiB), not the code limit, and it
+says nothing about the board's physical flash size.
+
+### Tests
+
+- **SDK host tests**: in `pico-keys-sdk/`, clone the pinned mbedtls v3.6.7
+  first — the test configure does **not** clone it (`git clone -q --depth 1
+  -b v3.6.7 https://github.com/Mbed-TLS/mbedtls.git third-party/mbedtls`,
+  pinned `068ff080`) — then `cmake -S tests -B build-tests -G Ninja && ninja
+  -C build-tests && ctest --test-dir build-tests --output-on-failure`.
+- **Root host tests**: configure an emulation build (`cmake -S . -B
+  build-emu -G Ninja -DENABLE_EMULATION=1 -DFORCE_BUTTON_WAIT=ON && ninja -C
+  build-emu`) and run `ctest --test-dir build-emu --output-on-failure`.
+- **Emulation pytest suite** (the emulator listens on TCP 35962/35963; the
+  CCID tests talk through pcscd with the vpcd virtual-reader driver, which
+  must be installed for pcscd): build the emulator as above (`build-emu`).
+  The Python environment is the CI recipe from `.github/workflows/pipico.yml`
+  ("Run the emulation python-fido2 suite") — a bare `pip install fido2` is
+  not enough. In a fresh virtual environment created in the repo root
+  (`python3 -m venv .venv-emu`; the default venv does **not** see system
+  site packages), without any other environment setup:
+
+  1. Install the CI-pinned packages (all are required: `tests/conftest.py`
+     imports `inputimeout` at load time, and the CCID tests need `pyscard`):
+     ```sh
+     .venv-emu/bin/python -m pip install fido2==2.2.1 pytest==9.1.1 \
+       pyscard==2.3.1 pyelftools==0.33 inputimeout==1.0.4 cryptography==50.0.2
+     ```
+  2. Install the vault enroller package — pytest imports it at collection
+     time even though the vault test itself is deselected (it needs CI
+     secrets to run):
+     ```sh
+     .venv-emu/bin/python -m pip install \
+       "pico-vault-enroller @ git+https://github.com/polhenarejos/pico-vault-enroller.git@79b1f1552d8f3824b7b7c81d19c37e7466fcbcc2"
+     ```
+  3. Copy the upstream TCP emulation transport (`tests/docker/fido2/`)
+     over the installed fido2 HID modules — without it, fido2 does not
+     reach the emulator on TCP:
+     ```sh
+     cp tests/docker/fido2/*.py "$(.venv-emu/bin/python -c 'import fido2, os; print(os.path.join(os.path.dirname(fido2.__file__), "hid"))')"/
+     ```
+  4. Start pcscd explicitly and stop it by its own PID — `run-emu-tests.sh`
+     starts and stops only the emulator. If pcscd is socket-activated
+     (`systemctl is-active pcscd.socket`), stop that first
+     (`sudo systemctl stop pcscd.socket pcscd.service`), then run
+     `setsid sudo -n /usr/sbin/pcscd -f --disable-polkit &` (find it with
+     `pgrep -x pcscd`, stop with `sudo -n kill <pid>`).
+  5. Run the suite:
+     `PIPICO_EMULATOR=build-emu/pico_fido PYTEST=.venv-emu/bin/pytest
+     scripts/pipico/run-emu-tests.sh` — it starts the emulator with a
+     fresh `memory.flash`, runs the upstream python-fido2 suite plus
+     `tests/pipico/` (deselecting only the vault test that needs CI
+     secrets) and stops the emulator by its PID.
+
+  `PIPICO_EMULATOR` must match the build directory used above (the
+  script's default is `build/pico_fido`); `PYTEST` must point at the
+  `pytest` of the venv prepared in steps 1–3. Expected result: **348
+  passed, 3 skipped, 1 deselected, 0 failed** — validated 2026-10-08 in a
+  fresh venv built only from these steps
+  ([`docs/pipico/release/venv-pytest-receipt.md`](docs/pipico/release/venv-pytest-receipt.md)).
+- **Host CLI**: in `host/`, `bun test` and `bunx tsc --noEmit`.
+
+`HARDWARE-TESTS.md` is the checklist for the board and Mac checks (G1,
+G5–G13), all of which are NOT_RUN here.
+
+### Companion key bindings
+
+The USR button gestures type fixed keys; bind them on the Mac with Shortcuts
+(`pipico install` prints the steps with absolute paths — created manually,
+never by the CLI): tap → **F13** → `pipico action`, double tap → **F14** →
+`pipico attention`, hold 1.5–3 s → **F15** → `pipico incident`, hold 3–10 s
+→ **F16** → `pipico lock`. A hold of 10 s or more sends nothing.
+
 ## Download
 **If you own an ESP32-S3 board, go to [ESP32 Flasher](https://www.picokeys.com/esp32-flasher/) for flashing your Pico FIDO.**
 

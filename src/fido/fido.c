@@ -45,6 +45,9 @@
 #include "crypto_utils.h"
 #include "otp.h"
 #include "event.h"
+#if defined(ENABLE_EMULATION)
+#include "usb/emulation/button_emul.h"
+#endif
 
 extern char *rp_id;
 extern size_t rp_id_len;
@@ -516,6 +519,11 @@ int scan_files_fido(void) {
 }
 
 void scan_all(void) {
+    // Storage-locked boots scan nothing: no bounds were published and every
+    // write would be refused anyway (mirrors the startup skip in main()).
+    if (low_flash_storage_locked()) {
+        return;
+    }
     //file_scan_flash();
     scan_files_fido();
 }
@@ -533,7 +541,15 @@ void init_fido(void) {
 }
 
 int wait_button_pressed(void) {
-    return wait_button_pressed_timeout(button_timeout_seconds());
+    uint32_t timeout_seconds = button_timeout_seconds();
+#ifdef FORCE_BUTTON_WAIT
+    /* Pipico UP policy: a configured timeout of 0 (the fresh-device
+       default) still waits for a real BOOT press, about 30 s. */
+    if (timeout_seconds == 0) {
+        timeout_seconds = 30;
+    }
+#endif
+    return wait_button_pressed_timeout(timeout_seconds);
 }
 
 int wait_button_pressed_timeout(uint32_t timeout_seconds) {
@@ -555,6 +571,31 @@ int wait_button_pressed_timeout(uint32_t timeout_seconds) {
     do {
         queue_remove_blocking(&usb_to_card_q, &val);
     } while (val != EV_BUTTON_PRESSED && val != EV_BUTTON_TIMEOUT && val != EV_BUTTON_CANCELLED);
+#elif defined(ENABLE_EMULATION)
+    /* Auto mode (no control file, or the `auto` command) is the plain
+       upstream emulation: the wait completes immediately, exactly as the
+       baseline does. Controlled modes (usb/emulation/button_emul.h) run a
+       real wait. */
+    if (!emul_button_auto()) {
+        if (timeout_seconds == 0 && !force_button_wait) {
+            /* Mirrors the firmware rule: an unforced zero timeout completes
+               without a wait. */
+        }
+        else if (emul_button_on_main_thread()) {
+            /* Under emulation the CCID and keyboard-HID transports are
+               served by the main-loop thread; blocking on usb_to_card_q
+               from here would deadlock the very loop that must dispatch
+               the button events. The emulated button is polled locally
+               instead (still bounded by the timeout). */
+            return emul_button_wait_local(timeout_seconds == 0 ? 30000 : timeout_seconds * 1000);
+        }
+        else {
+            queue_try_add(&card_to_usb_q, &val);
+            do {
+                queue_remove_blocking(&usb_to_card_q, &val);
+            } while (val != EV_BUTTON_PRESSED && val != EV_BUTTON_TIMEOUT && val != EV_BUTTON_CANCELLED);
+        }
+    }
 #endif
     if (val == EV_BUTTON_TIMEOUT) {
         return 1;
@@ -700,7 +741,30 @@ static const cmd_t cmds[] = {
     { 0x00, 0x0 }
 };
 
+bool fido_storage_locked_reject(bool is_discovery) {
+    // One central storage-locked gate, checked at the application entry
+    // points (cbor_parse, the FIDO/U2F APDU entries, OATH and OTP) before
+    // any handler runs: while the storage is locked no bounds were
+    // published, the auth-token files were never scanned and every flash
+    // write is refused, so non-discovery requests must not reach the
+    // handlers at all (they would fault on the absent token keys or report
+    // false success). Discovery still answers: CTAP2 getInfo (both the
+    // CTAPHID and the APDU/CCID transport), U2F version, CTAPHID
+    // INIT/PING/WINK/CANCEL (handled before this dispatch) and app SELECT
+    // (handled centrally in the SDK).
+    return low_flash_storage_locked() && !is_discovery;
+}
+
 int fido_process_apdu(void) {
+    // Storage-locked gate: only discovery is answered here (U2F VERSION and
+    // CTAP2 getInfo); SELECT never reaches the per-app entry points (it is
+    // central). CTAP2 requests other than getInfo are refused again behind
+    // this gate, in cbor_parse.
+    bool is_discovery = (INS(apdu) == CTAP_VERSION) ||
+        (INS(apdu) == CTAP_CBOR && apdu.nc > 0 && apdu.data[0] == CTAP_GET_INFO);
+    if (fido_storage_locked_reject(is_discovery)) {
+        return SW_FILE_FULL(); // documented storage-locked SW (0x6A84)
+    }
     if (CLA(apdu) != 0x00 && CLA(apdu) != 0x80) {
         return SW_CLA_NOT_SUPPORTED();
     }

@@ -1,0 +1,23 @@
+# pipico release manifest (CI)
+root-sha: b31a8ab969536d754a7737c3ffe12bf7c6e3da5f
+sdk-gitlink: 654fbda1046c0dba3832ff520f7d1ea25d1df45b
+layout-id: yd4m-effective2m-marker-gap-v1
+--- resolved tuple (pipico-build-tuple.txt) ---
+arm-none-eabi-gcc: arm-none-eabi-gcc (Arm GNU Toolchain 13.2.rel1 (Build arm-13.7)) 13.2.1 20231009
+pico-sdk: 079c6f39023649b154152db30f1d781e884879bc (/home/runner/work/_temp/pico-sdk)
+tinyusb: 86ad6e56c1700e85f1c5678607a762cfe3aa2f47
+picotool: picotool v2.3.1 (Linux, GNU-13.3.0, Release)
+mbedtls: 068ff080b369adfac81509f9b57b2afabaf82dc5
+tinycbor: c0aad2fb2137a31b9845fbaae3653540c410f215
+PICO_BOARD=vcc-gnd_yd-rp2040_4m
+PICO_USE_FASTEST_SUPPORTED_CLOCK=0
+PICO_FLASH_SIZE_LIMIT_BYTES=0x200000
+FORCE_BUTTON_WAIT=ON
+ENABLE_OATH_APP=ON
+ENABLE_OTP_APP=ON
+PIPICO_COMPANION=ON
+ENABLE_EDDSA: not enabled (off by default)
+--- sha256 ---
+cfbaa43088c307ef414f103cd2d9d989b60ea8a84846fff52f440f4ad845140e  pico_fido.uf2
+5e872a1cfd8f6e148f7aa40282bd45a8fca656598996a2e2a72af3fd67dce95e  pico_fido.elf
+ce8b8be4c7fc9c58fee1de9051d21a2d2ca4ab43e9242469130ee3b85586eedf  pico_fido.bin

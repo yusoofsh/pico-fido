@@ -17,6 +17,8 @@
 
 cmake_minimum_required(VERSION 3.13)
 
+option(PIPICO_REPRODUCIBLE_BUILD "Normalize firmware paths and omit build-date metadata" OFF)
+
 set(USB_VID 0x2E8A)
 set(USB_PID 0x10FE)
 
@@ -25,8 +27,33 @@ if(ESP_PLATFORM)
     include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 else()
     if(NOT ENABLE_EMULATION)
-        set(PICO_USE_FASTEST_SUPPORTED_CLOCK 1)
+        # Boards that are unstable at the fastest clock (200 MHz on RP2040) can
+        # build with -DPICO_USE_FASTEST_SUPPORTED_CLOCK=0.
+        if(NOT DEFINED PICO_USE_FASTEST_SUPPORTED_CLOCK)
+            set(PICO_USE_FASTEST_SUPPORTED_CLOCK 1)
+        endif()
         include(pico_sdk_import.cmake)
+
+        if(PIPICO_REPRODUCIBLE_BUILD)
+            # SET_BUILD_NUMBER uses the reachable commit count. A shallow
+            # checkout changes that metadata even at the same source SHA.
+            execute_process(COMMAND git rev-parse --is-shallow-repository
+                WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+                OUTPUT_VARIABLE PIPICO_SHALLOW_REPOSITORY
+                OUTPUT_STRIP_TRAILING_WHITESPACE
+                RESULT_VARIABLE PIPICO_GIT_RESULT)
+            if(NOT PIPICO_GIT_RESULT EQUAL 0 OR NOT PIPICO_SHALLOW_REPOSITORY STREQUAL "false")
+                message(FATAL_ERROR "Reproducible builds require full Git history for the build number; fetch with --unshallow")
+            endif()
+            # Apply before creating targets so SDK/static-library debug paths
+            # are normalized too. Later maps win for nested SDK/build roots.
+            add_compile_options(
+                "-ffile-prefix-map=${CMAKE_CURRENT_SOURCE_DIR}=."
+                "-ffile-prefix-map=${PICO_SDK_PATH}=./pico-sdk"
+                "-ffile-prefix-map=${CMAKE_CURRENT_BINARY_DIR}=./build"
+            )
+            add_compile_definitions(PICO_NO_BI_PROGRAM_BUILD_DATE=1)
+        endif()
     endif()
 
     project(pico_fido C CXX ASM)
@@ -63,6 +90,16 @@ configure_bool_option(
     "OTP Application: \t\t disabled"
 )
 
+# USR-button companion (F13-F16 macros): default ON in the Pipico preset.
+# The OFF build is the budget baseline for scripts/pipico/check-budget.sh.
+option(PIPICO_COMPANION "Enable/disable the USR-button companion" ON)
+configure_bool_option(
+    PIPICO_COMPANION
+    PIPICO_COMPANION
+    "Pipico companion: \t\t enabled"
+    "Pipico companion: \t\t disabled"
+)
+
 if(FORBID_DISABLE_AUV)
     add_compile_definitions(FORBID_DISABLE_AUV=1)
 endif()
@@ -78,6 +115,11 @@ endif()
 if(FORCE_BUTTON_WAIT)
     add_compile_definitions(FORCE_BUTTON_WAIT=1)
 endif()
+
+# Pipico branding: USB product string (SDK default when absent: "Pico Key").
+# A phy-config usb_product still overrides it at runtime; VID/PID and the
+# serial-number mechanism are unchanged.
+add_compile_definitions(USB_PRODUCT_STRING="Yusoofs Pipico")
 
 if(ENABLE_OTP_APP OR ENABLE_OATH_APP)
     set(USB_ITF_CCID 1)
@@ -144,6 +186,27 @@ endif()
 set(INCLUDES ${INCLUDES}
     ${CMAKE_CURRENT_LIST_DIR}/src/fido
 )
+
+if(PIPICO_COMPANION)
+    # The companion pure modules are linked into the firmware (ARM and
+    # emulation alike); pipico.c itself carries only the pure core except
+    # in device builds, where its PIPICO_DEVICE_BUILD part (GPIO24 glue,
+    # strong picokey_early_init/picokey_task) is compiled.
+    list(APPEND INCLUDES ${CMAKE_CURRENT_LIST_DIR}/src/pipico)
+    list(APPEND SOURCES
+        ${CMAKE_CURRENT_LIST_DIR}/src/pipico/gesture.c
+        ${CMAKE_CURRENT_LIST_DIR}/src/pipico/kbd_arbiter.c
+        ${CMAKE_CURRENT_LIST_DIR}/src/pipico/pipico.c
+    )
+    if(NOT ENABLE_EMULATION AND NOT ESP_PLATFORM)
+        # The Pico SDK does not export a PICO_PLATFORM preprocessor macro
+        # in this configuration, so the device build is identified the same
+        # way main.c tells the device path apart: neither the emulation
+        # host build nor the ESP port is enabled.
+        set_source_files_properties(${CMAKE_CURRENT_LIST_DIR}/src/pipico/pipico.c
+            PROPERTIES COMPILE_DEFINITIONS "PIPICO_DEVICE_BUILD=1")
+    endif()
+endif()
 
 if(NOT ESP_PLATFORM)
     target_sources(pico_fido PUBLIC ${SOURCES})
@@ -289,6 +352,106 @@ if(NOT ESP_PLATFORM)
         endif()
         target_link_libraries(fido_otp_container_test PRIVATE mbedtls)
         add_test(NAME fido_otp_container_test COMMAND fido_otp_container_test)
+
+        # Storage-locked dispatch regression: drives the real application
+        # dispatchers with the storage locked (see docs/pipico/LAYOUT.md).
+        # The SDK sources are linked without main.c so the test provides its
+        # own entry point.
+        # ${SOURCES} already holds the SDK sources (PICOKEYS_SOURCES) plus
+        # the root application sources; drop the SDK main.c so the test
+        # provides its own entry point.
+        set(FIDO_STORAGE_LOCKED_TEST_SOURCES ${SOURCES})
+        list(REMOVE_ITEM FIDO_STORAGE_LOCKED_TEST_SOURCES ${CMAKE_CURRENT_LIST_DIR}/pico-keys-sdk/src/main.c)
+        add_executable(fido_storage_locked_test
+            ${FIDO_STORAGE_LOCKED_TEST_SOURCES}
+            ${CMAKE_CURRENT_LIST_DIR}/tests/fido_storage_locked_test.c
+        )
+        target_include_directories(fido_storage_locked_test PRIVATE ${INCLUDES})
+        if(MSVC)
+            target_compile_options(fido_storage_locked_test PRIVATE /W4 /WX)
+        else()
+            target_compile_options(fido_storage_locked_test PRIVATE -Wall -Wextra -Werror)
+        endif()
+        target_link_libraries(fido_storage_locked_test PRIVATE ${LIBRARIES})
+        if(NOT MSVC)
+            target_link_libraries(fido_storage_locked_test PRIVATE pthread m)
+        endif()
+        add_test(NAME fido_storage_locked_test COMMAND fido_storage_locked_test)
+
+        # Pure gesture parser (USR button taps and holds): a time-injected
+        # state machine with no SDK headers, one process per scenario so
+        # ctest -R gesture selects them by name.
+        add_executable(fido_gesture_test
+            ${CMAKE_CURRENT_LIST_DIR}/src/pipico/gesture.c
+            ${CMAKE_CURRENT_LIST_DIR}/tests/fido_gesture_test.c
+        )
+        target_include_directories(fido_gesture_test PRIVATE ${CMAKE_CURRENT_LIST_DIR}/src/pipico)
+        if(MSVC)
+            target_compile_options(fido_gesture_test PRIVATE /W4 /WX)
+        else()
+            target_compile_options(fido_gesture_test PRIVATE -Wall -Wextra -Werror)
+        endif()
+        foreach(scene IN ITEMS
+            tap_29 tap_30 tap_500 tap_501 tap_dead_zone_800
+            single_tap_window double_tap_299 double_tap_300 double_tap_301
+            hold_1499 hold_1500 hold_2999 hold_3000 hold_9999 hold_10000
+            overhold_rearm bounce_tap glitch_19 glitch_in_window_19 debounce_edge_20
+            wrap_hold_1600 wrap_tap wrap_double_tap
+            compound_tap_hold compound_tap_dead_zone compound_tap_too_short
+            abort_mid_press abort_window abort_held
+            stall_gap stall_gap_overhold start_pressed event_counts)
+            add_test(NAME gesture_${scene} COMMAND fido_gesture_test ${scene})
+        endforeach()
+
+        # Pure keyboard arbiter (companion gating): accepts a gesture event
+        # only when auth/UP/OTP are idle and the keyboard interface is
+        # usable, holds one pending event for at most 100 ms and always
+        # pairs an issued key-down with a release. One process per
+        # scenario, so ctest -R arbiter selects them by name.
+        add_executable(fido_kbd_arbiter_test
+            ${CMAKE_CURRENT_LIST_DIR}/src/pipico/gesture.c
+            ${CMAKE_CURRENT_LIST_DIR}/src/pipico/kbd_arbiter.c
+            ${CMAKE_CURRENT_LIST_DIR}/tests/fido_kbd_arbiter_test.c
+        )
+        target_include_directories(fido_kbd_arbiter_test PRIVATE ${CMAKE_CURRENT_LIST_DIR}/src/pipico)
+        if(MSVC)
+            target_compile_options(fido_kbd_arbiter_test PRIVATE /W4 /WX)
+        else()
+            target_compile_options(fido_kbd_arbiter_test PRIVATE -Wall -Wextra -Werror)
+        endif()
+        foreach(scene IN ITEMS
+            accept_all_clear drop_auth_busy drop_up_pending drop_auth_and_up
+            drop_otp_typing drop_tx_busy drop_kb_disabled drop_unmounted drop_suspended
+            stale_100 stale_101 stale_wrap
+            interrupt_unmount interrupt_suspend interrupt_auth_busy interrupt_up_pending
+            pending_blocks_on_otp queue_depth_one release_guaranteed release_after_wrap
+            mapping started_during_busy_auth started_during_busy_otp)
+            add_test(NAME arbiter_${scene} COMMAND fido_kbd_arbiter_test ${scene})
+        endforeach()
+
+        # Companion glue lifecycle (src/pipico/pipico.c pure core): the
+        # per-tick pipeline sample -> gesture -> arbiter -> transmitter
+        # with the auth-busy mapping is_busy() || exec_finished_cancelled.
+        # Focus: cancellation-unwind suppression, normal rearming, the
+        # F13..F16 mapping and the no-replay rule. One process per
+        # scenario, so ctest -R glue selects them by name.
+        add_executable(fido_pipico_glue_test
+            ${CMAKE_CURRENT_LIST_DIR}/src/pipico/gesture.c
+            ${CMAKE_CURRENT_LIST_DIR}/src/pipico/kbd_arbiter.c
+            ${CMAKE_CURRENT_LIST_DIR}/src/pipico/pipico.c
+            ${CMAKE_CURRENT_LIST_DIR}/tests/fido_pipico_glue_test.c
+        )
+        target_include_directories(fido_pipico_glue_test PRIVATE ${CMAKE_CURRENT_LIST_DIR}/src/pipico)
+        if(MSVC)
+            target_compile_options(fido_pipico_glue_test PRIVATE /W4 /WX)
+        else()
+            target_compile_options(fido_pipico_glue_test PRIVATE -Wall -Wextra -Werror)
+        endif()
+        foreach(scene IN ITEMS
+            cancel_unwind_suppressed busy_kinds_suppress
+            normal_completion_rearm cancel_clear_rearm mapping_f13_f16)
+            add_test(NAME glue_${scene} COMMAND fido_pipico_glue_test ${scene})
+        endforeach()
     else()
         target_link_libraries(
             pico_fido

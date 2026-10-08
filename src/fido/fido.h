@@ -131,6 +131,11 @@ bool check_user_presence(void);
 bool check_user_presence_for_credential(bool require_button);
 void fido_led_3_blinks(void);
 int fido_process_apdu(void);
+// Central storage-locked gate for the application entry points: true when the
+// request must be refused before any handler, token use or crypto runs.
+// Non-discovery requests are refused while the storage is locked; see
+// docs/pipico/LAYOUT.md for the documented behavior and error codes.
+bool fido_storage_locked_reject(bool is_discovery);
 int cmd_register(void);
 int cmd_authenticate(void);
 int cmd_version(void);

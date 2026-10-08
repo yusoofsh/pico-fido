@@ -1,0 +1,183 @@
+# Pipico mission CI (architecture.md section 8): builds the Pipico preset at
+# the exact submodule gitlink, runs the image-bounds gate (plus its negative
+# self-tests), the clock gate and the companion-budget gate against a fresh
+# PIPICO_COMPANION=OFF baseline, the root host ctest, the emulation
+# python-fido2 suite (run-emu-tests.sh deselects only
+# tests/pico-fido/test_080_vault.py::test_live_export_import_roundtrip, the
+# upstream vault test that needs CI secrets) and the host CLI bun test +
+# typecheck, then uploads the release artifacts.
+# Read-only: top-level contents: read, no secrets, no pull_request_target.
+name: pipico
+
+on:
+  push:
+    branches:
+      - 'pipico/**'
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  PICO_SDK_SHA: 079c6f39023649b154152db30f1d781e884879bc     # Pico SDK 2.3.1
+  PICO_TINYUSB_SHA: 86ad6e56c1700e85f1c5678607a762cfe3aa2f47 # Pico SDK 2.3.1 lib/tinyusb
+  PICOTOOL_SHA: 2041936441b48a3cc53ae3da9e805229fe8f4e18     # picotool 2.3.1
+  ARM_TC_SHA256: 6cd1bbc1d9ae57312bcd169ae283153a9572bd6a8e4eeae2fedfbc33b115fdbb
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - name: Check out the pushed commit with submodules at the recorded gitlinks
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Reproducible build number uses the full source history.
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Assert the pico-keys-sdk submodule sits at the exact gitlink
+        run: |
+          link=$(git ls-tree HEAD pico-keys-sdk | awk '{print $3}')
+          sub=$(git -C pico-keys-sdk rev-parse HEAD)
+          echo "gitlink=$link submodule=$sub"
+          test -n "$link" && test "$link" = "$sub"
+
+      - name: Install Arm GNU Toolchain 13.2.Rel1 (archive sha256-verified)
+        run: |
+          curl -fsSLo arm-toolchain.tar.xz \
+            https://developer.arm.com/-/media/Files/downloads/gnu/13.2.rel1/binrel/arm-gnu-toolchain-13.2.rel1-x86_64-arm-none-eabi.tar.xz
+          echo "$ARM_TC_SHA256  arm-toolchain.tar.xz" | sha256sum -c -
+          tar -xJf arm-toolchain.tar.xz -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/arm-gnu-toolchain-13.2.Rel1-x86_64-arm-none-eabi/bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/arm-gnu-toolchain-13.2.Rel1-x86_64-arm-none-eabi/bin/arm-none-eabi-gcc" --version | head -1
+
+      - name: Install Pico SDK 2.3.1 at the pinned SHA with its submodules
+        run: |
+          git clone -q https://github.com/raspberrypi/pico-sdk "$RUNNER_TEMP/pico-sdk"
+          git -C "$RUNNER_TEMP/pico-sdk" checkout -q "$PICO_SDK_SHA"
+          git -C "$RUNNER_TEMP/pico-sdk" submodule update --init --recursive
+          echo "PICO_SDK_PATH=$RUNNER_TEMP/pico-sdk" >> "$GITHUB_ENV"
+          echo "pico-sdk $(git -C "$RUNNER_TEMP/pico-sdk" rev-parse HEAD)"
+          echo "tinyusb  $(git -C "$RUNNER_TEMP/pico-sdk/lib/tinyusb" rev-parse HEAD)"
+          test "$(git -C "$RUNNER_TEMP/pico-sdk/lib/tinyusb" rev-parse HEAD)" = "$PICO_TINYUSB_SHA"
+
+      - name: Install build and test system packages
+        run: |
+          # archive.ubuntu.com occasionally stalls on the hosted runners;
+          # retry the update+install pair with a hard per-attempt timeout
+          for attempt in 1 2 3; do
+            if timeout 240 sudo apt-get update -q && timeout 300 sudo apt-get install -y ninja-build help2man libusb-1.0-0-dev libtss2-dev python3-dev pcscd libpcsclite-dev; then
+              break
+            fi
+            echo "apt attempt $attempt failed; retrying"
+            [ "$attempt" = 3 ] && exit 1
+            sleep 10
+          done
+
+      - name: Build the pinned picotool 2.3.1 (flat install)
+        run: |
+          git clone -q https://github.com/raspberrypi/picotool "$RUNNER_TEMP/picotool-src"
+          git -C "$RUNNER_TEMP/picotool-src" checkout -q "$PICOTOOL_SHA"
+          cmake -S "$RUNNER_TEMP/picotool-src" -B "$RUNNER_TEMP/picotool-build" \
+            -DPICO_SDK_PATH="$PICO_SDK_PATH" -DPICOTOOL_FLAT_INSTALL=1 -DCMAKE_BUILD_TYPE=Release
+          cmake --build "$RUNNER_TEMP/picotool-build" -j2
+          cmake --install "$RUNNER_TEMP/picotool-build" --prefix "$RUNNER_TEMP/picotool"
+          echo "PICOTOOL_DIR=$RUNNER_TEMP/picotool/picotool" >> "$GITHUB_ENV"
+          "$RUNNER_TEMP/picotool/picotool/picotool" version
+
+      - name: Build the vpcd virtual CCID reader for the emulation tests
+        run: |
+          git clone -q --depth 1 https://github.com/frankmorgner/vsmartcard /tmp/vsmartcard
+          cd /tmp/vsmartcard/virtualsmartcard
+          autoreconf --install
+          ./configure --prefix= --sysconfdir=/etc
+          make -j2
+          # installs libifdvpcd.so into /usr/lib/pcsc/drivers/serial and
+          # registers the Virtual PCD reader in /etc/reader.conf.d/vpcd
+          sudo make install
+
+      - name: Build the fresh PIPICO_COMPANION=OFF budget baseline
+        run: |
+          PIPICO_BUILD_DIR="$PWD/build/arm-pipico-nocompanion" scripts/pipico/build.sh -DPIPICO_COMPANION=OFF
+
+      - name: Build the Pipico firmware (companion ON) with the bounds, clock and budget gates
+        run: |
+          PIPICO_BUILD_DIR="$PWD/build/arm-pipico" PIPICO_BASELINE_BUILD_DIR="$PWD/build/arm-pipico-nocompanion" \
+            scripts/pipico/build.sh
+
+      - name: Run the image-bounds gate negative self-tests
+        run: python3 scripts/pipico/check-image-bounds.py --self-test
+
+      - name: Run the emulation build and the root host ctest
+        run: |
+          cmake -S . -B emu -G Ninja -DENABLE_EMULATION=1 -DFORCE_BUTTON_WAIT=ON -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+          ninja -C emu -j2
+          set -o pipefail
+          ctest --test-dir emu --output-on-failure -j2 | tee "$RUNNER_TEMP/roothost-ctest.log"
+
+      - name: Run the emulation python-fido2 suite (single vault deselect)
+        run: |
+          python3 -m pip install -q fido2==2.2.1 pytest==9.1.1 pyscard==2.3.1 pyelftools==0.33 inputimeout==1.0.4 cryptography==50.0.2
+          # the upstream vault test module imports the enroller helper at
+          # collection time; pytest collects it even though the vault test
+          # itself is deselected (it needs CI secrets to run)
+          python3 -m pip install -q "pico-vault-enroller @ git+https://github.com/polhenarejos/pico-vault-enroller.git@79b1f1552d8f3824b7b7c81d19c37e7466fcbcc2"
+          # the upstream TCP emulation transport (tests/docker/fido2) overwrites
+          # the installed fido2/hid modules, exactly like the local venv setup
+          hid_dir=$(python3 -c 'import fido2, os; print(os.path.join(os.path.dirname(fido2.__file__), "hid"))')
+          cp tests/docker/fido2/*.py "$hid_dir"/
+          # polkit denies pyscard clients on the runner (SCARD_E_NO_ACCESS);
+          # the mission-standard pcscd runs with polkit disabled, outside
+          # socket activation
+          sudo systemctl stop pcscd.socket pcscd.service
+          sudo /usr/sbin/pcscd -f --disable-polkit &
+          sleep 2
+          pgrep -x pcscd
+          PIPICO_EMULATOR="$PWD/emu/pico_fido" PIPICO_EMU_RUN_DIR="$RUNNER_TEMP/emu-run" PYTEST=pytest \
+            scripts/pipico/run-emu-tests.sh --junitxml="$RUNNER_TEMP/pytest-receipt.xml"
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+
+      - name: Run the host CLI tests and typecheck
+        run: |
+          cd host
+          bun install --frozen-lockfile
+          set -o pipefail
+          bun test 2>&1 | tee "$RUNNER_TEMP/bun-test.log"
+          bunx tsc --noEmit
+
+      - name: Collect the release artifacts and manifest
+        run: |
+          art="$PWD/pipico-release-evidence"
+          mkdir -p "$art/receipts"
+          cp build/arm-pipico/pico_fido.uf2 build/arm-pipico/pico_fido.elf \
+             build/arm-pipico/pico_fido.bin build/arm-pipico/pico_fido.elf.map \
+             build/arm-pipico/pipico-build-tuple.txt "$art/"
+          python3 scripts/pipico/check-clock.py build/arm-pipico > "$art/clock-report.txt"
+          python3 scripts/pipico/check-image-bounds.py build/arm-pipico > "$art/image-bounds-report.json"
+          PIPICO_BUILD_DIR="$PWD/build/arm-pipico" PIPICO_BASELINE_BUILD_DIR="$PWD/build/arm-pipico-nocompanion" \
+            scripts/pipico/check-budget.sh > "$art/budget-report.txt"
+          cp "$RUNNER_TEMP/roothost-ctest.log" "$RUNNER_TEMP/pytest-receipt.xml" "$RUNNER_TEMP/bun-test.log" "$art/receipts/"
+          {
+            echo "# pipico release manifest (CI)"
+            echo "root-sha: $(git rev-parse HEAD)"
+            echo "sdk-gitlink: $(git ls-tree HEAD pico-keys-sdk | awk '{print $3}')"
+            echo "layout-id: $(grep -m1 -oE 'yd4m-[a-z0-9-]+' docs/pipico/LAYOUT.md)"
+            echo "--- resolved tuple (pipico-build-tuple.txt) ---"
+            cat build/arm-pipico/pipico-build-tuple.txt
+            echo "--- sha256 ---"
+            (cd build/arm-pipico && sha256sum pico_fido.uf2 pico_fido.elf pico_fido.bin)
+          } > "$art/manifest.txt"
+
+      - name: Upload the release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: pipico-release-evidence
+          path: pipico-release-evidence/

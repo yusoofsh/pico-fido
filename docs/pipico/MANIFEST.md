@@ -1,0 +1,267 @@
+# Source and dependency manifest (M1 baseline)
+
+This manifest separates **OBSERVED** facts — values produced by commands run
+against the working trees and fork remotes on **2026-10-05** — from
+**PROPOSED** items that are planned but not yet evidenced. Do not cite a
+PROPOSED item as fact. The M5 release feature refreshes this file with
+SHA-256 hashes of the built artifacts.
+
+Scope of the observations: root `pipico/integration-v1` @
+`5833bc23c2c5d70f40bd8733faa52be5380d4cea` (CI-green head; docs commits may
+sit on top — see the push receipts below), SDK
+`pipico/companion-hooks` @ `3201dbd0e6972a97510c08d21d1386de130c62e2`
+(contains `pipico/storage-baseline` @ `a1eb8cf541bae2575985e1b18fb97ced670193bb`
+as an ancestor). Layout ID: `yd4m-effective2m-marker-gap-v1` (see
+`LAYOUT.md`). This file was refreshed through the release corrections on
+**2026-10-07**: the newest published heads are root `0e74670…` (run
+`37693278603`) and SDK `654fbda…` (run `37685874677`), and the
+documentation-correction round adds a local gitlink bump to SDK
+`e96e502…` (see the push receipts and `HANDOFF.md`; the source-tuple table
+below records the M5-refresh observation).
+
+## OBSERVED: source tuple
+
+| Component | Value | Observed with |
+|---|---|---|
+| Root fork | `yusoofsh/pico-fido`, branch `pipico/integration-v1` @ `5833bc23c2c5d70f40bd8733faa52be5380d4cea` (origin head at this refresh) | `git -C $ROOT rev-parse HEAD`, `git ls-remote origin refs/heads/pipico/integration-v1` |
+| Root base | `fix/rp2040-clock-override` @ `1cd988de0a3acdce47b2d732f9e9c92017595900` | `git -C $ROOT rev-parse fix/rp2040-clock-override` |
+| Root base (advanced externally) | `fix/rp2040-clock-override` @ `7d08bf80353b6aa178d40d36092b0712bf7acfee`, merged into the mission branch as merge commit `ceff7019541a2df333426856301418c861b77224` (parents `80fa7f25…`, `7d08bf8…`) | `git -C $ROOT log --format='%H %P' -1 ceff7019541a2df333426856301418c861b77224` |
+| Root reference | `main` @ `f01fa1e2817a845e44d788f3f633a1f122ce332e` (untouched) | `git -C $ROOT ls-remote origin` |
+| SDK fork | `yusoofsh/pico-keys-sdk`, branch `pipico/companion-hooks` @ `3201dbd0e6972a97510c08d21d1386de130c62e2`, stacked on `pipico/storage-baseline` @ `a1eb8cf541bae2575985e1b18fb97ced670193bb` (ancestor-verified) | `git -C $SDK rev-parse HEAD`, `git -C $SDK merge-base --is-ancestor a1eb8cf 3201dbd` |
+| SDK base | `fix/flash-size-limit` @ `a26c831ceb20d5d6c60e97cdc457e426d2abf3ed` | `git -C $SDK rev-parse fix/flash-size-limit` |
+| SDK base (advanced externally) | `fix/flash-size-limit` @ `28cd6a428c54f5fc83c94bc06b4d1d9855b97451`, merged into the mission branch as merge commit `7973a9916d9f70717a69d1c50645c1d36e4bb52a` (parents `42e740a…`, `28cd6a4…`) | `git -C $SDK log --format='%H %P' -1 7973a9916d9f70717a69d1c50645c1d36e4bb52a` |
+| SDK reference | `main` @ `50699e53e8ada214c27f6c9b66ea3b6f127fc655` (untouched) | `git -C $SDK ls-remote origin` |
+| Root gitlink | `pico-keys-sdk` = `3201dbd0e6972a97510c08d21d1386de130c62e2`, equal to the `pipico/companion-hooks` head | `git -C $ROOT ls-tree HEAD pico-keys-sdk` |
+| Submodule URL | `https://github.com/yusoofsh/pico-keys-sdk` | `$ROOT/.gitmodules` |
+
+## OBSERVED: build dependencies
+
+| Dependency | Ref / version | SHA | Where it resolves from |
+|---|---|---|---|
+| Arm GNU Toolchain | 13.2.rel1 — `arm-none-eabi-gcc 13.2.1 20231009` | n/a (binary tarball) | local toolchain dir (`arm-none-eabi-gcc --version`) |
+| Pico SDK | tag `2.3.1` | `079c6f39023649b154152db30f1d781e884879bc` | `$PICO_SDK_PATH` (`git rev-parse HEAD`, `git describe --tags`) |
+| TinyUSB | Pico SDK submodule | `86ad6e56c1700e85f1c5678607a762cfe3aa2f47` | `$PICO_SDK_PATH/lib/tinyusb` |
+| picotool | `v2.3.1` standalone | n/a | `$PICOTOOL_DIR` (`picotool version`) |
+| mbedtls | `mbedtls-3.6.7` | `068ff080b369adfac81509f9b57b2afabaf82dc5` | configure-time clone `pico-keys-sdk/third-party/mbedtls` (`git rev-parse HEAD`) |
+| tinycbor | tag `v0.6.1` | `c0aad2fb2137a31b9845fbaae3653540c410f215` | configure-time clone `pico-keys-sdk/third-party/tinycbor` |
+| CMake / Ninja | 3.28.3 / 1.13.2 | n/a | system / toolchain venv |
+
+`third-party/` is created by the configure step and is **never committed**
+(verified: 0 tracked `third-party/` files in both repos).
+
+## OBSERVED: resolved build configuration
+
+From `pipico-build-tuple.txt`, written by `scripts/pipico/build.sh` at the
+last ARM build, and from the clock gate:
+
+- `PICO_BOARD=vcc-gnd_yd-rp2040_4m`
+- `PICO_USE_FASTEST_SUPPORTED_CLOCK=0` → `SYS_CLK_HZ=125000000`
+- USB clock `48000000`
+- `PICO_FLASH_SIZE_LIMIT_BYTES=0x200000`
+- `FORCE_BUTTON_WAIT=ON`
+- `ENABLE_OATH_APP=ON`, `ENABLE_OTP_APP=ON`
+- EdDSA: not enabled
+- `compile_commands.json` exported
+- Cap and `FORCE_BUTTON_WAIT` compile definitions present in 206/206 TUs;
+  no `SYS_CLK_*` override in any TU
+
+Image (bounds-gate report, same build): write end `0x10084b00`, UF2 blocks
+2123 (family `0xe48bff56`), erase footprint end `0x10085000`, headroom
+`0x7b500` bytes below the `0x100000` code limit.
+
+## OBSERVED: automated tests (2026-10-05)
+
+`bash $MISSION_DIR/scripts/gate.sh lint sdk arm roothost` — exit 0, all
+requested stages passed.
+
+| Suite | Result |
+|---|---|
+| SDK host ctest | 14/14 passed: `object_store_test`, `object_crypto_provider_test`, `object_policy_test` (upstream), `flash_layout_test` (pure module), and 10 `low_flash_*` integration-harness variants (`capped4m`, `capped2m`, `cap_misaligned`, `cap_too_small`, `nolimit2m`, `nolimit4m`, `nolimit16m`, `nolimit1m`, `nolimit512k`, `locked_boot`) |
+| SDK flash-size-limit python regression | `python3 tests/test_flash_size_limit.py` (adapted to the M1 design in `f48d23d`): 12/12 unittest cases passed |
+| ARM build + gates | `build.sh` exit 0; clock gate PASS; image-bounds gate PASS (self-test 16/16 after the case (a) fixture fix in `2f2705c`) |
+| Root clock-override regression | `python3 tests/test_clock_override.py` (merged from `7d08bf8` in merge `ceff701`): passes standalone and under pytest collection, 1 test with 20 subtests, no emulator needed |
+| Root host ctest | 6/6 passed: `fido_object_provider_test`, `fido_object_authorization_test`, `fido_resident_container_test`, `fido_oath_container_test`, `fido_otp_container_test`, and the mission-added `fido_storage_locked_test` |
+
+## OBSERVED: publication state
+
+First M1 push (observed 2026-10-05, before the external-advance merges):
+
+- Both mission branches were pushed: `pipico/storage-baseline` @
+  `4ca0d2a40b565ac08e823328dac7f1b810c4ae73` on `yusoofsh/pico-keys-sdk` and
+  `pipico/integration-v1` @ `eaeb9c25c96e6f4c01331fc7732e67297330eb29` on
+  `yusoofsh/pico-fido`. The SDK branch was pushed first, then the root
+  branch; no force-push.
+- Push access was verified with `git push --dry-run` for both forks before
+  the push (both returned success). Push access had become available through
+  a user-provided credential; the credential itself is not recorded anywhere
+  in this repository.
+- The pre-mission branches were untouched at their recorded SHAs (`main`,
+  `fix/*`, `plugin`, `preview_sign`, `development`,
+  `copilot/fix-code-scanning-alerts-254`; see the validation contract,
+  VAL-PUB-004), and the only new heads were the two `pipico/*` branches.
+- G0 fresh-clone check passed at that state: `git clone --recurse-submodules
+  -b pipico/integration-v1 https://github.com/yusoofsh/pico-fido` checks out
+  the submodule at `4ca0d2a40b565ac08e823328dac7f1b810c4ae73`, `git
+  submodule status --recursive` prints a leading space (no `-`, `+` or `U`
+  marker), `git status --porcelain --ignore-submodules=none` is empty in the
+  root and the submodule, and the submodule origin is
+  `https://github.com/yusoofsh/pico-keys-sdk`.
+- The SDK CI workflow ran on the fork and succeeded at that state: run
+  `37304456019`
+  (https://github.com/yusoofsh/pico-keys-sdk/actions/runs/37304456019),
+  workflow `pipico-sdk-tests`, event `push`, branch
+  `pipico/storage-baseline`, headSha `4ca0d2a40b565ac08e823328dac7f1b810c4ae73`,
+  job `host-tests` completed with conclusion **success** (`gh run list` /
+  `gh run view`).
+
+Re-push with the external-advance merges (observed 2026-10-05):
+
+- Both mission branches were pushed again, SDK first: `pipico/storage-baseline`
+  fast-forwarded `42e740ab9b7a8c6e90ebfaa0849372c53f188263..f48d23ddb55add5fb3118884e64f7456a29b70bd`
+  and `pipico/integration-v1` fast-forwarded
+  `80fa7f25c39539e9f2eb158d86ecb67a2f65a8b7..f163038eac2ff48c46357f53654355114c11d44b`
+  (`git push` exit 0 on both; no force-push, and the `fix/*` refs were never
+  written). `git ls-remote` confirms the two heads, and the root gitlink
+  (`f48d23d…`) equals the SDK remote head.
+- The SDK CI workflow ran on the new SDK head and succeeded: run `37387049402`
+  (https://github.com/yusoofsh/pico-keys-sdk/actions/runs/37387049402),
+  workflow `pipico-sdk-tests`, event `push`, branch `pipico/storage-baseline`,
+  headSha `f48d23ddb55add5fb3118884e64f7456a29b70bd`, job `host-tests`
+  completed with conclusion **success**, including the new
+  `Run the flash-size-limit python regression` step (`gh run list` /
+  `gh run view`).
+- Nothing is merged into `main` and no mission PR exists yet; draft PRs are
+  the M5 release feature.
+
+## OBSERVED: push receipts (M2–M5)
+
+Every push of the mission branches after the M1 publications above, in
+chronological order. All were fast-forward pushes (SDK first, then root; no
+force-push; `main` and `fix/*` never written). Every SHA below was verified
+to exist with `git cat-file -e <sha>^{commit}` in the SDK or root clone
+during the 2026-10-07 correction refresh (36/36 resolve: 13 SDK-side, 23
+root-side, counting the full SHAs the abbreviated ranges expand to). CI
+conclusions were observed with `gh run list`; the SDK CI workflow is
+`pipico-sdk-tests`. No root workflow existed before M5, so early root
+pushes name none.
+
+| When (UTC) | Feature | Branch and push range (old..new) | CI run |
+|---|---|---|---|
+| 2026-10-06 | m2-emulated-boot-button | SDK `pipico/storage-baseline` `f48d23d…fe1be45ff68aab65b7ac2831860320d058e07687` | `37394112027` success |
+| 2026-10-06 | m2-emulated-boot-button | root `pipico/integration-v1` `0f68e1d7a77a0223bf160aa1e945a8373599b123..89a7f0392c04a3d959af33e6daff64c2498d6227` | none yet on root |
+| 2026-10-06 | m2-publish-presence-fido | SDK `pipico/storage-baseline` `fe1be45…069b95b8c5cf871b667be0c3ce58f328257436e8` | `37410861807` success |
+| 2026-10-06 | m2-publish-presence-fido | root `pipico/integration-v1` `89a7f03…2510f7f84b450e2b7af90d6254b5885fc7f8d023` | none yet on root |
+| 2026-10-06 | m2-fix-stale-touch-boundaries | SDK `pipico/storage-baseline` `069b95b…75dc0e063548a4b92ea0d0b46bf61264f661ac75` | `37413595243` success |
+| 2026-10-06 | m2-fix-stale-touch-boundaries | root `pipico/integration-v1` `2510f7f…f028f0d74109935532be10cad1a631dc96250e12` | none yet on root |
+| 2026-10-06 | m2-fix-ctaphid-cancel-same-channel | SDK `pipico/storage-baseline` `75dc0e0…462660a74ba72ab24ed10f1b8ae634ac96ee13b2` | `37421823560` success |
+| 2026-10-06 | m2-fix-ctaphid-cancel-same-channel | root `pipico/integration-v1` `f028f0d…7e1749acc76327a05058a353a833d4acb6c5a4e1` | none yet on root |
+| 2026-10-06 | m2-fix-cancel-fast-retry-race | SDK `pipico/storage-baseline` `462660a…13ba59e7c5db69cc56a422a43e703a974b9f4a6d` | `37440459162` success |
+| 2026-10-06 | m2-fix-cancel-fast-retry-race | root `pipico/integration-v1` `7e1749a…61007929de4fa94c21dabf9c7f65517c3f3d62db` | none yet on root |
+| 2026-10-06 | m2-fix-cancel-retry-fragmented | SDK `pipico/storage-baseline` `13ba59e…42c19433c783903730bb1006a4e8c09cddcf1307` | `37451538536` success |
+| 2026-10-06 | m2-fix-cancel-retry-fragmented | root `pipico/integration-v1` `6100792…7eed77805b9b5f9df35bb00dd1827801e39bba95` | none yet on root |
+| 2026-10-06 | m2-fix-cancel-path-consolidated | SDK `pipico/storage-baseline` `42c1943…78c7d07c4421a3a037c04a9877e995e38c5536dd` | `37482931099` success |
+| 2026-10-06 | m2-fix-cancel-path-consolidated | root `pipico/integration-v1` `7eed778…e122bedbd95f9179f259c37525f95670facb038a` | none yet on root |
+| 2026-10-06 | m2-cancel-path-randomized-test | SDK `pipico/storage-baseline` `78c7d07…5ea02ba2fc218beae750a5c692799319b2fb0672` | `37499923753`, `37499923591` success |
+| 2026-10-06 | m2-cancel-path-randomized-test | root `pipico/integration-v1` `e122bed…550350c038733d0eb0f107048232852274f9f35c` | none yet on root |
+| 2026-10-07 | m2-deflake-randomized-cancel-test | SDK `pipico/storage-baseline` `5ea02ba…a1eb8cf541bae2575985e1b18fb97ced670193bb` | `37562735185` success |
+| 2026-10-07 | m2-deflake-randomized-cancel-test | root `pipico/integration-v1` `550350c…bb6144193f87facbb81f9eb5009a5e4a479d1e7c` | none yet on root |
+| 2026-10-07 | m3-sdk-hooks-and-kb-transmitter | SDK new branch `pipico/companion-hooks` @ `3201dbd0e6972a97510c08d21d1386de130c62e2` (6 commits, stacked on `pipico/storage-baseline` `a1eb8cf…`) | `37615375963` success on `3201dbd…` |
+| 2026-10-07 | m3-sdk-hooks-and-kb-transmitter | root `pipico/integration-v1` `bb61441…068212bcd81946572f77f360bb06acfb7e61d654` | none yet on root |
+| 2026-10-07 | M4 host-CLI commits + m5-ci-workflows | root `pipico/integration-v1` `068212b…5833bc23c2c5d70f40bd8733faa52be5380d4cea` (the M4 host-CLI commits plus the CI workflow commits `eb5aa19…5833bc2`; recorded receipts are the workflow runs) | `37678066567` success on `dd6d9a9…`, `37679411045` success on `3d45c53…`, **`37682443999` success on `5833bc2…` (final)** |
+| 2026-10-07 | m5-docs-and-handoff | SDK `pipico/companion-hooks` `3201dbd…654fbda1046c0dba3832ff520f7d1ea25d1df45b` (README-only commit) | `37685874677` success on `654fbda…` |
+| 2026-10-07 | m5-docs-and-handoff | root `pipico/integration-v1` `5833bc2…b31a8ab969536d754a7737c3ffe12bf7c6e3da5f` (gitlink bump + docs series) | `37685884106` success on `b31a8ab…` |
+| 2026-10-07 | m5-release-evidence-and-repro | root `pipico/integration-v1` `b31a8ab…5ba8b086972ebe931c74352e8930b9f19a71dd87` (release-evidence docs commits `6499200` bundle + `5ba8b08` manifest/handoff refresh) | `37687857080` success on `5ba8b08…` |
+| 2026-10-07 | m5-push-ci-and-draft-prs | root `pipico/integration-v1` `5ba8b08…aa09cf4f28ea63d909bf86bf780d6f4c857f1c6b` (workflow commit `6def65d` upload the bin + `aa09cf4` receipt row) | `37690147169` success on `aa09cf4…` |
+| 2026-10-07 | m5-push-ci-and-draft-prs | root `pipico/integration-v1` `aa09cf4…5e250a559f8b7436cef8be8af9644e257e72d649` (draft-PR + final documentation commits) | `37691662474` success on `5e250a5…` (push event; the draft PRs also ran the same workflow on the PR event, success) |
+| 2026-10-07 | m5-push-ci-and-draft-prs | root `pipico/integration-v1` `5e250a5…0e74670d0965662563f1bfcb1811834568acde27` (final-head run + pre-existing-upstream-PR docs) | `37693278603` success on `0e74670…` |
+
+(Every push's receipt row is appended by a later commit — a commit cannot
+contain the run id of its own push. The terminal push `5e250a5…0e74670…`
+above is recorded by this documentation commit; until that row existed it
+lived only in the mission publication record. The receipt for the push of
+the current documentation-correction commits will likewise be appended by
+the next publication feature and is kept in the mission publication record
+(`library/publication-state.md`) meanwhile.)
+
+Notes:
+
+- The final root CI push run observed so far is `37693278603` (workflow
+  `pipico.yml`, branch `pipico/integration-v1`, push event, head
+  `0e74670d0965662563f1bfcb1811834568acde27`): it concluded **success**
+  (re-verified this session with `gh run view`; its artifact was
+  downloaded and re-hashed in the same session — `uf2` `cfbaa430…`,
+  `elf` `5e872a1c…`, `bin` `ce8b8be4…`, all equal to the recorded values,
+  and its receipts show root host ctest 67/67, junit `tests=371`
+  `failures=0` `errors=0` `skipped=3`, `bun test` 315 pass / 0 fail).
+  Its artifact `manifest.txt` records `root-sha: 0e74670…` and
+  `sdk-gitlink: 654fbda…`. The earlier runs `37682443999` (head
+  `5833bc2…`), `37685884106` (head `b31a8ab…`), `37687857080` (head
+  `5ba8b08…`), `37690147169` (head `aa09cf4…`) and `37691662474` (head
+  `5e250a5…`) were green with byte-identical firmware artifacts (each
+  artifact downloaded; hashes re-verified; the `.bin` was manifest-only
+  before run `37690147169`). All of these runs built on the same UTC date
+  (2026-10-07); the image embeds the compiler build date (`__DATE__`), so
+  the equality is a same-date observation, not a reproducibility
+  guarantee (`docs/pipico/release/reproducibility.md`).
+  The release bundle built from `b31a8ab…` lives in `docs/pipico/release/`.
+- The last SDK CI observation is run `37685874677` (success) on
+  `pipico/companion-hooks` @ `654fbda…` (a README-only commit on top of
+  `3201dbd…`), the exact gitlink of root `0e74670…`. The documentation-
+  correction round bumps the root gitlink to the next README-only SDK
+  commit `e96e50208d6dcc78baa69c52de1e3340fd17749b`; its publication
+  (SDK first, CI observed, then the root push) belongs to the final
+  publication feature, which records the receipt.
+- Docs-only commits pushed after a built/cited SHA are named in
+  `HANDOFF.md`; they change no build input.
+
+## PROPOSED (not yet evidenced)
+
+- **HARDWARE TESTED / HOST INSTALLED / FLASHED / ACCOUNT ENROLLED** — NOT_RUN
+  for the whole mission (no board, no Mac).
+- USB product string "Yusoofs Pipico": the compile definition
+  (`USB_PRODUCT_STRING`, root `CMakeLists.txt:99`) is SOURCE REVIEWED and the
+  image is BUILT with it; USB enumeration with that string on a real host is
+  HARDWARE TESTED = NOT_RUN.
+
+## OBSERVED (M5 release): draft PRs
+
+- **Draft PRs created, never merged** (2026-10-07, feature
+  `m5-push-ci-and-draft-prs`):
+  - pico-fido: [`pipico/integration-v1` → `main`,
+    draft PR 1](https://github.com/yusoofsh/pico-fido/pull/1) — head
+    tracks the branch tip (verified `headRefOid` == remote head at
+    handoff), body describes the whole branch relative to `main`.
+  - pico-keys-sdk: [`pipico/companion-hooks` → `main`,
+    draft PR 1](https://github.com/yusoofsh/pico-keys-sdk/pull/1) — head
+    `654fbda…`, body covers flash_layout, the reordered `low_flash_init`,
+    host tests and CI, and the companion hooks/keyboard transmitter.
+  The **root CI workflow** (`pipico.yml`) is OBSERVED: pushed and green on
+  `5833bc2…` (run `37682443999`), on `b31a8ab…` (run `37685884106`), on
+  `5ba8b08…` (run `37687857080`) and on `aa09cf4…` (run `37690147169`),
+  see the push receipts above.
+
+## OBSERVED (M5 release): reproducibility comparison and release evidence
+
+- **Two-clean-build comparison**: done (2026-10-07, feature
+  `m5-release-evidence-and-repro`). Two fresh recursive clones of the
+  pushed branch (same root/SDK SHAs) built with the documented single
+  command in two different directories produced **different** UF2/bin/ELF
+  hashes (11 differing bytes, all embedded absolute build-path
+  characters; the CI runner path additionally changes string lengths).
+  **No reproducible-build claim is made.** Both hash sets and the
+  diagnosed cause: `docs/pipico/release/reproducibility.md`.
+- **Release evidence**: delivered in `docs/pipico/release/`
+  (`RELEASE-MANIFEST.md` — complete source tuple re-resolved from a fresh
+  clone+configure, resolved flags, SHA-256 of the released and
+  fresh-clone UF2/ELF/bin, size and write-range report
+  `image-bounds-report.json`, `clock-report.txt`,
+  `budget-fresh-clone.txt`, `test-receipts.md`) and as the CI artifact
+  `pipico-release-evidence` of run `37685884106`.
+- **Fresh-clone one-command build + gates**: `scripts/pipico/build.sh`
+  exits 0 with zero diagnostics in both fresh clones; clock, image-bounds
+  and budget gates all pass (budget against a fresh OFF baseline built in
+  the same clone: RAM +20 B / flash +1200 B, matching the M3 canonical
+  evidence).
+- **Emulation python-fido2 gate** — OBSERVED since M2 and re-observed on
+  the final tuple from a fresh clone (CI run `37685884106` and the local
+  fresh-clone receipt: 348 passed / 3 skipped / 1 deselected / 0 failed).

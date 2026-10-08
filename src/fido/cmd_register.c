@@ -127,6 +127,10 @@ static const cmd_t cmds[] = {
 };
 
 int u2f_process_apdu(void) {
+    // Storage-locked gate: only the version (discovery) command is answered.
+    if (fido_storage_locked_reject(INS(apdu) == CTAP_VERSION)) {
+        return SW_FILE_FULL(); // documented storage-locked SW (0x6A84)
+    }
     if (CLA(apdu) != 0x00) {
         return SW_CLA_NOT_SUPPORTED();
     }
