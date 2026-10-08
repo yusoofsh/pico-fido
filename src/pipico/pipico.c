@@ -34,6 +34,9 @@
  *     core0 does not break the gesture timing), then run the pure
  *     pipeline gesture parser -> arbiter -> single-owner keyboard
  *     transmitter. The only usages it sends are F13..F16 (0x68..0x6B).
+ *     Once the transmitter has completed the key-down and release reports,
+ *     it may request a nonessential LED acknowledgement if no FIDO LED
+ *     indication is active.
  *
  * The companion never: allocates heap memory, sleeps or blocks (the only
  * busy_wait_us is the boot-time settle above), writes to flash, uses
@@ -123,6 +126,7 @@ void pipico_glue_tick(uint32_t now_ms, int raw_level,
 
 #include "button.h"
 #include "kb_tx.h"
+#include "led/led.h"
 #include "usb.h"
 
 /* The USR button of the board header (GPIO24 on the YD-RP2040), with a
@@ -150,13 +154,20 @@ void pipico_glue_tick(uint32_t now_ms, int raw_level,
 
 /* Boot latch: USR held at boot keeps the companion off for this boot. */
 static bool companion_off;
+static bool companion_report_pending;
 
 static bool glue_tx_claim(void) {
     return kb_tx_claim(KB_TX_OWNER_COMPANION);
 }
 
 static bool glue_tx_send(uint8_t keycode) {
-    return kb_tx_add_buffer(KB_TX_OWNER_COMPANION, &keycode, 1, false);
+    bool queued = kb_tx_add_buffer(KB_TX_OWNER_COMPANION, &keycode, 1, false);
+    if (queued) {
+        /* kb_tx_add_buffer queues the usage; the acknowledgement is delayed
+         * until kb_tx_task has actually sent the paired HID reports. */
+        companion_report_pending = true;
+    }
+    return queued;
 }
 
 static void glue_tx_release(void) {
@@ -209,6 +220,19 @@ void picokey_task(void) {
     in.suspended = usb_kb_suspended();
     in.tx_busy = kb_tx_busy();
     in.ready = usb_kb_itf_enabled() && tud_hid_n_ready(ITF_HID_KB);
+
+    if (companion_report_pending) {
+        if (!in.mounted) {
+            /* A disconnect cannot have delivered the queued report. */
+            companion_report_pending = false;
+        }
+        else if (!in.tx_busy) {
+            /* The HID task runs before this hook. At this point the
+             * transmitter has drained the key-down and release reports. */
+            (void)led_try_blink_n_times(1, LED_COLOR_CYAN, 60, 60);
+            companion_report_pending = false;
+        }
+    }
 
     pipico_glue_tick(to_ms_since_boot(get_absolute_time()),
                      gpio_get(PIPICO_USR_PIN), &in, &device_glue_ops);

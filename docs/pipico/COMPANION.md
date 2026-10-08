@@ -54,7 +54,11 @@ next power cycle or reset.
    transmitter (`kb_tx_claim`/`kb_tx_add_buffer`/`kb_tx_release` with
    `KB_TX_OWNER_COMPANION`). The only usages ever sent are F13–F16
    (0x68–0x6B); the paired all-released report is the transmitter's own
-   guarantee. The glue never sends TinyUSB reports directly.
+   guarantee. The glue never sends TinyUSB reports directly. After the HID
+   task has drained both reports, the firmware requests one short cyan blink
+   as a best-effort “gesture sent” acknowledgement. It is not emitted when
+   the report is dropped, the device disconnects, or a FIDO processing,
+   user-presence, suspend, or success indication is already active.
 
 ## Busy mapping (auth busy)
 
@@ -85,8 +89,10 @@ The gate self-test (synthetic size tables) fails at exactly +8193 B RAM and
 
 The companion shares the core0 address space with FIDO by design; it is a
 convenience input, not an isolation boundary. It never allocates, blocks,
-writes flash, uses core1 or drives a LED, and it reads UP/credential state
-only through the documented read-only accessors (`is_busy`,
+writes flash, or uses core1. Its optional LED acknowledgement is submitted
+through the SDK's non-preempting LED seam and is skipped when a FIDO
+indication has priority. It reads UP/credential state only through the
+documented read-only accessors (`is_busy`,
 `exec_finished_cancelled`, `is_req_button_pending`, `kb_tx_typing`,
 `usb_kb_*`, `tud_hid_n_ready`). No security or tamper-resistance claim is
 made for it. A keystroke is not authentication: F13–F16 can be produced by
