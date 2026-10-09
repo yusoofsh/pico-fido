@@ -537,7 +537,7 @@ int cbor_make_credential(const uint8_t *data, size_t len) {
         /* Pipico UP policy: makeCredential always waits for a real BOOT
            touch, even with a valid pinUvAuthParam. check_user_presence()
            honors FORCE_BUTTON_WAIT, so a configured timeout of 0 waits
-           (about 30 s) instead of completing without a touch. */
+           (up to 300 s) instead of completing without a touch. */
         if (check_user_presence() == false) {
             CBOR_ERROR(CTAP2_ERR_OPERATION_DENIED);
         }

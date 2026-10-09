@@ -544,9 +544,10 @@ int wait_button_pressed(void) {
     uint32_t timeout_seconds = button_timeout_seconds();
 #ifdef FORCE_BUTTON_WAIT
     /* Pipico UP policy: a configured timeout of 0 (the fresh-device
-       default) still waits for a real BOOT press, about 30 s. */
+       default) still waits for a real BOOT press, up to the 300 s WebAuthn
+       ceremony window. */
     if (timeout_seconds == 0) {
-        timeout_seconds = 30;
+        timeout_seconds = FORCE_BUTTON_WAIT_DEFAULT_TIMEOUT_SECONDS;
     }
 #endif
     return wait_button_pressed_timeout(timeout_seconds);
@@ -587,7 +588,9 @@ int wait_button_pressed_timeout(uint32_t timeout_seconds) {
                from here would deadlock the very loop that must dispatch
                the button events. The emulated button is polled locally
                instead (still bounded by the timeout). */
-            return emul_button_wait_local(timeout_seconds == 0 ? 30000 : timeout_seconds * 1000);
+            return emul_button_wait_local(timeout_seconds == 0
+                ? FORCE_BUTTON_WAIT_DEFAULT_TIMEOUT_SECONDS * 1000u
+                : timeout_seconds * 1000u);
         }
         else {
             queue_try_add(&card_to_usb_q, &val);

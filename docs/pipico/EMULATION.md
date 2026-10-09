@@ -87,8 +87,8 @@ follows the firmware rules for the configured timeout of 0: forced
 operations (CTAP2 makeCredential — always, even with a valid
 pinUvAuthParam; getAssertion with up=true or up omitted, whatever the
 credential's require_button flag says; authenticatorReset;
-authenticatorSelection; U2F register; U2F enforce-and-sign) wait about
-30 s because the build has `FORCE_BUTTON_WAIT`. A CTAP2 reset with no
+authenticatorSelection; U2F register; U2F enforce-and-sign) wait up to
+300 s because the build has `FORCE_BUTTON_WAIT`. A CTAP2 reset with no
 configured timeout waits too, like every other forced operation.
 Set `timeout:2` (or the environment variable) to make no-touch resets and
 other tests finish quickly.

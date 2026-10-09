@@ -11,7 +11,7 @@ variable PICOKEYS_EMULATION_BUTTON_FILE (see docs/pipico/EMULATION.md and
 the btn.py helpers). `timeout:<s>` is the emulation-only UP timeout
 override; `timeout:0` restores the default resolution, which makes the
 forced operations (makeCredential, getAssertion with up=true, selection,
-U2F register, U2F enforce-and-sign, reset) wait about 30 s in this build.
+U2F register, U2F enforce-and-sign, reset) wait up to 300 s in this build.
 """
 
 import hashlib
@@ -271,7 +271,7 @@ def test_reset_press_succeeds(device):
 
 def test_reset_zero_timeout_still_waits(device):
     """With no timeout override (configured timeout 0) a reset is refused
-    too: FORCE_BUTTON_WAIT turns 0 into a ~30 s wait."""
+    too: FORCE_BUTTON_WAIT turns 0 into a wait of up to 300 s."""
     register_credential(device, rk=True)
     write_cmd("none")
     write_cmd("timeout:0")
@@ -425,7 +425,7 @@ def test_getinfo_silent(device):
 
 def test_zero_timeout_waits_for_press_and_cancel(device):
     """VAL-UP-021: a configured timeout of 0 still waits (FORCE_BUTTON_WAIT,
-    about 30 s): no completion within 5 s, UPNEEDED keepalives are received,
+    up to 300 s): no completion within 5 s, UPNEEDED keepalives are received,
     and CTAPHID_CANCEL ends the wait with 0x2D."""
     write_cmd("none")
     write_cmd("timeout:0")

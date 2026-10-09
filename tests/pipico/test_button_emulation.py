@@ -230,7 +230,7 @@ def test_cancel_while_idle_is_discarded(device):
 def test_long_wait_sends_keepalives_and_cancel_aborts(device):
     """A controlled wait with a long timeout keeps the client informed with
     UPNEEDED keepalives and CTAPHID_CANCEL aborts it. (The timeout:0 default
-    resolution and the FORCE_BUTTON_WAIT 0->30 s rule are covered by the SDK
+    resolution and the FORCE_BUTTON_WAIT 0->300 s rule are covered by the SDK
     unit tests; a reset with no override and no configured timeout
     auto-completes, like the firmware with no UP timeout.)"""
     write_cmd("none")

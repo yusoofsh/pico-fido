@@ -139,7 +139,7 @@ Steps (time each step):
 1. Start a makeCredential with `fido2-cred` (or a browser passkey creation)
    for a disposable rpId/user, and do not touch anything. The device must
    wait (its "press to confirm" LED pattern), and the request must fail with
-   a user-action timeout after roughly 30 s (the forced wait; a configured
+   a user-action timeout after roughly 300 s (the forced wait; a configured
    timeout of 0 still waits). No credential is created.
 2. Repeat and press BOOT during the wait. The credential is created.
 3. Press and release BOOT while no request is pending, then immediately start
@@ -157,7 +157,7 @@ Steps (time each step):
    wait for a BOOT press and refuse without one (the credential survives).
 
 Pass criterion (objective): every numbered expectation holds; the no-touch
-refusals take about the forced wait (~30 s) and never succeed silently; the
+refusals take about the forced wait (~300 s) and never succeed silently; the
 silent operation completes in under 2 s without a touch prompt. Current
 status: **NOT_RUN**.
 

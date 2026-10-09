@@ -548,7 +548,7 @@ int cbor_get_assertion(const uint8_t *data, size_t len, bool next) {
                    omitted), whatever the credential's own require_button
                    flag says and even with a valid pinUvAuthParam.
                    check_user_presence() honors FORCE_BUTTON_WAIT, so a
-                   configured timeout of 0 still waits (about 30 s). */
+                   configured timeout of 0 still waits (up to 300 s). */
                 if (check_user_presence() == false) {
                     CBOR_ERROR(CTAP2_ERR_OPERATION_DENIED);
                 }
