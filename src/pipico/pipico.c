@@ -229,7 +229,7 @@ void picokey_task(void) {
         else if (!in.tx_busy) {
             /* The HID task runs before this hook. At this point the
              * transmitter has drained the key-down and release reports. */
-            (void)led_try_blink_n_times(1, LED_COLOR_CYAN, 60, 60);
+            (void)led_try_blink_n_times(1, LED_COLOR_CYAN, 150, 100);
             companion_report_pending = false;
         }
     }
