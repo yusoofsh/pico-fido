@@ -8,7 +8,7 @@ flash, or credentials and does not consume OTP feature reports.
 | --- | --- |
 | 0 | Magic `0x50` |
 | 1 | Format version `1` |
-| 2 | Bit 0: current GPIO24 level; bit 1: companion disabled at boot |
+| 2 | Bit 0: current GPIO24 level; bit 1: companion disabled at boot; bit 2: last press requested feedback; bit 3: LED accepted that request |
 | 3 | Gate flags sampled at the last raw press edge |
 | 4 | Raw press-edge count |
 | 5 | Classified gesture count |

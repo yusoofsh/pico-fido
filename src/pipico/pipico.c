@@ -60,6 +60,8 @@ static volatile uint8_t diagnostic_gestures;
 static volatile uint8_t diagnostic_queued;
 static volatile uint8_t diagnostic_last_event;
 static volatile uint8_t diagnostic_press_flags;
+static volatile bool diagnostic_feedback_requested;
+static volatile bool diagnostic_feedback_accepted;
 static int diagnostic_last_raw;
 #endif
 
@@ -233,7 +235,9 @@ uint16_t picokey_read_diagnostics(uint8_t *buffer, uint16_t capacity) {
     buffer[0] = 0x50; /* Pipico */
     buffer[1] = 1; /* format version */
     buffer[2] = (uint8_t)(gpio_get(PIPICO_USR_PIN) != 0) |
-                (uint8_t)(companion_off ? 2 : 0);
+                (uint8_t)(companion_off ? 2 : 0) |
+                (uint8_t)(diagnostic_feedback_requested ? 4 : 0) |
+                (uint8_t)(diagnostic_feedback_accepted ? 8 : 0);
     buffer[3] = diagnostic_press_flags;
     buffer[4] = diagnostic_press_edges;
     buffer[5] = diagnostic_gestures;
@@ -297,10 +301,16 @@ void picokey_task(void) {
     if (feedback_stable != feedback_raw &&
         (uint32_t)(now_ms - feedback_changed_ms) >= PIPICO_GESTURE_DEBOUNCE_MS) {
         feedback_stable = feedback_raw;
+        if (feedback_stable == PIPICO_GESTURE_PRESSED_LEVEL) {
+            diagnostic_feedback_requested = false;
+            diagnostic_feedback_accepted = false;
+        }
         if (feedback_stable == PIPICO_GESTURE_PRESSED_LEVEL &&
             !in.command_busy && !in.cancel_unwind && !in.up_pending &&
             !in.otp_typing && in.mounted && !in.suspended) {
-            (void)led_try_blink_n_times(1, LED_COLOR_CYAN, 80, 60);
+            diagnostic_feedback_requested = true;
+            diagnostic_feedback_accepted =
+                led_try_blink_n_times(1, LED_COLOR_CYAN, 80, 60);
         }
     }
 
