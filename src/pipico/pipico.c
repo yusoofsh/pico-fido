@@ -54,6 +54,16 @@
 #include "kbd_arbiter.h"
 #include "pipico.h"
 
+#ifdef PIPICO_DEVICE_BUILD
+/* Non-sensitive, read-only runtime evidence for the rescue diagnostic. */
+static volatile uint8_t diagnostic_press_edges;
+static volatile uint8_t diagnostic_gestures;
+static volatile uint8_t diagnostic_queued;
+static volatile uint8_t diagnostic_last_event;
+static volatile uint8_t diagnostic_press_flags;
+static int diagnostic_last_raw;
+#endif
+
 /* ---- pure glue core (compiled on the host for the lifecycle tests) ---- */
 
 void pipico_glue_init(void) {
@@ -83,6 +93,10 @@ void pipico_glue_tick(uint32_t now_ms, int raw_level,
 
     enum pipico_gesture_event ev = gesture_feed(now_ms, raw_level);
     if (ev != PIPICO_GESTURE_NONE) {
+#ifdef PIPICO_DEVICE_BUILD
+        diagnostic_gestures++;
+        diagnostic_last_event = (uint8_t)ev;
+#endif
         (void)kbd_arbiter_accept(ev, now_ms, &ain);
     }
 
@@ -163,6 +177,7 @@ static bool glue_tx_claim(void) {
 static bool glue_tx_send(uint8_t keycode) {
     bool queued = kb_tx_add_buffer(KB_TX_OWNER_COMPANION, &keycode, 1, false);
     if (queued) {
+        diagnostic_queued++;
         /* kb_tx_add_buffer queues the usage; the acknowledgement is delayed
          * until kb_tx_task has actually sent the paired HID reports. */
         companion_report_pending = true;
@@ -201,6 +216,23 @@ void picokey_early_init(void) {
         }
     }
     companion_off = held;
+    diagnostic_last_raw = gpio_get(PIPICO_USR_PIN);
+}
+
+uint16_t picokey_read_diagnostics(uint8_t *buffer, uint16_t capacity) {
+    if (buffer == NULL || capacity < 8) {
+        return 0;
+    }
+    buffer[0] = 0x50; /* Pipico */
+    buffer[1] = 1; /* format version */
+    buffer[2] = (uint8_t)(gpio_get(PIPICO_USR_PIN) != 0) |
+                (uint8_t)(companion_off ? 2 : 0);
+    buffer[3] = diagnostic_press_flags;
+    buffer[4] = diagnostic_press_edges;
+    buffer[5] = diagnostic_gestures;
+    buffer[6] = diagnostic_queued;
+    buffer[7] = diagnostic_last_event;
+    return 8;
 }
 
 void picokey_task(void) {
@@ -221,6 +253,19 @@ void picokey_task(void) {
     in.tx_busy = kb_tx_busy();
     in.ready = usb_kb_itf_enabled() && tud_hid_n_ready(ITF_HID_KB);
 
+    int raw_level = gpio_get(PIPICO_USR_PIN);
+    if (raw_level != diagnostic_last_raw &&
+        raw_level == PIPICO_GESTURE_PRESSED_LEVEL) {
+        diagnostic_press_edges++;
+        diagnostic_press_flags =
+            (in.command_busy || in.cancel_unwind ? 1u : 0u) |
+            (in.up_pending ? 2u : 0u) | (in.otp_typing ? 4u : 0u) |
+            (in.kb_enabled ? 8u : 0u) | (in.mounted ? 16u : 0u) |
+            (in.suspended ? 32u : 0u) | (in.tx_busy ? 64u : 0u) |
+            (in.ready ? 128u : 0u);
+    }
+    diagnostic_last_raw = raw_level;
+
     if (companion_report_pending) {
         if (!in.mounted) {
             /* A disconnect cannot have delivered the queued report. */
@@ -235,7 +280,7 @@ void picokey_task(void) {
     }
 
     pipico_glue_tick(to_ms_since_boot(get_absolute_time()),
-                     gpio_get(PIPICO_USR_PIN), &in, &device_glue_ops);
+                     raw_level, &in, &device_glue_ops);
 }
 
 #endif /* PIPICO_DEVICE_BUILD */
