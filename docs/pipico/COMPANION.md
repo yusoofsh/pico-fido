@@ -28,8 +28,13 @@ baseline).
 1. configures GPIO24 as input with pull-up;
 2. waits ≤ 1 ms with `busy_wait_us` (the only busy wait in the companion) so
    the pull-up settles;
-3. samples the line three times 100 µs apart and latches "companion off for
-   this boot" only if every sample reads pressed.
+3. samples the line three times 100 µs apart as an initial held candidate.
+
+The main loop then confirms the candidate over a nonblocking 20 ms settle
+window. Any released sample clears it. Only a continuously pressed line
+latches "companion off for this boot"; gestures are not processed during
+this window. This avoids treating GPIO24's initial RC charging transient
+as an intentional held button.
 
 The latch is runtime-only RAM state: it changes no flash, PIN, credential,
 counter or USB identity, and the UP policy is untouched. It resets on the

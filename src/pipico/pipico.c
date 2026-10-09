@@ -18,14 +18,14 @@
 /* Thin glue of the USR-button companion (architecture.md section 6.2).
  *
  * It provides the strong picokey_early_init()/picokey_task() hooks of
- * pico-keys-sdk main.c and nothing else:
+ * pico-keys-sdk main.c, plus its read-only runtime diagnostic hook:
  *
  *   - picokey_early_init(): GPIO24 (the YD-RP2040 USR button,
  *     VCC_GND_YD_RP2040_BUTTON_PIN in the board header) as an input with
  *     the internal pull-up. The line idles high and reads LOW while
  *     pressed (documented in docs/pipico/COMPANION.md). A busy_wait_us of
- *     at most 1000 us lets the pull-up settle, then a few samples latch
- *     the boot request: USR held at boot keeps the companion off for that
+ *     at most 1000 us takes an initial held candidate; the main loop
+ *     confirms it over 20 ms without blocking. USR held at boot keeps the companion off for that
  *     boot. Runtime only: no flash, PIN, credential, counter or USB
  *     identity change, and the UP policy is untouched.
  *
@@ -168,6 +168,9 @@ void pipico_glue_tick(uint32_t now_ms, int raw_level,
 
 /* Boot latch: USR held at boot keeps the companion off for this boot. */
 static bool companion_off;
+static bool companion_latch_pending;
+static bool companion_held_candidate;
+static uint32_t companion_latch_started_ms;
 static bool companion_report_pending;
 
 static bool glue_tx_claim(void) {
@@ -215,7 +218,13 @@ void picokey_early_init(void) {
             busy_wait_us(PIPICO_USR_SAMPLE_US);
         }
     }
-    companion_off = held;
+    /* GPIO24 has an RC network on the board. The initial sample can be low
+     * while the released line settles. Confirm a continuously held button
+     * asynchronously before latching the companion off for this boot. */
+    companion_off = false;
+    companion_held_candidate = held;
+    companion_latch_pending = true;
+    companion_latch_started_ms = to_ms_since_boot(get_absolute_time());
     diagnostic_last_raw = gpio_get(PIPICO_USR_PIN);
 }
 
@@ -236,6 +245,20 @@ uint16_t picokey_read_diagnostics(uint8_t *buffer, uint16_t capacity) {
 }
 
 void picokey_task(void) {
+    if (companion_latch_pending) {
+        int raw_level = gpio_get(PIPICO_USR_PIN);
+        if (raw_level != PIPICO_GESTURE_PRESSED_LEVEL) {
+            companion_held_candidate = false;
+        }
+        if ((uint32_t)(to_ms_since_boot(get_absolute_time()) -
+                       companion_latch_started_ms) < 20u) {
+            return;
+        }
+        companion_off = companion_held_candidate;
+        companion_latch_pending = false;
+        diagnostic_last_raw = raw_level;
+        pipico_glue_init();
+    }
     if (companion_off) {
         /* USR was held at boot: the companion is off for this boot. */
         return;
