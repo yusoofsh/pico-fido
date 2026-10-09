@@ -34,9 +34,8 @@
  *     core0 does not break the gesture timing), then run the pure
  *     pipeline gesture parser -> arbiter -> single-owner keyboard
  *     transmitter. The only usages it sends are F13..F16 (0x68..0x6B).
- *     Once the transmitter has completed the key-down and release reports,
- *     it may request a nonessential LED acknowledgement if no FIDO LED
- *     indication is active.
+ *     A stable USR press requests one short LED pulse while idle, without
+ *     waiting for gesture classification or changing the key pipeline.
  *
  * The companion never: allocates heap memory, sleeps or blocks (the only
  * busy_wait_us is the boot-time settle above), writes to flash, uses
@@ -171,7 +170,9 @@ static bool companion_off;
 static bool companion_latch_pending;
 static bool companion_held_candidate;
 static uint32_t companion_latch_started_ms;
-static bool companion_report_pending;
+static int feedback_raw;
+static int feedback_stable;
+static uint32_t feedback_changed_ms;
 
 static bool glue_tx_claim(void) {
     return kb_tx_claim(KB_TX_OWNER_COMPANION);
@@ -181,9 +182,6 @@ static bool glue_tx_send(uint8_t keycode) {
     bool queued = kb_tx_add_buffer(KB_TX_OWNER_COMPANION, &keycode, 1, false);
     if (queued) {
         diagnostic_queued++;
-        /* kb_tx_add_buffer queues the usage; the acknowledgement is delayed
-         * until kb_tx_task has actually sent the paired HID reports. */
-        companion_report_pending = true;
     }
     return queued;
 }
@@ -257,6 +255,8 @@ void picokey_task(void) {
         companion_off = companion_held_candidate;
         companion_latch_pending = false;
         diagnostic_last_raw = raw_level;
+        feedback_raw = feedback_stable = raw_level;
+        feedback_changed_ms = to_ms_since_boot(get_absolute_time());
         pipico_glue_init();
     }
     if (companion_off) {
@@ -289,20 +289,22 @@ void picokey_task(void) {
     }
     diagnostic_last_raw = raw_level;
 
-    if (companion_report_pending) {
-        if (!in.mounted) {
-            /* A disconnect cannot have delivered the queued report. */
-            companion_report_pending = false;
-        }
-        else if (!in.tx_busy) {
-            /* The HID task runs before this hook. At this point the
-             * transmitter has drained the key-down and release reports. */
-            (void)led_try_blink_n_times(1, LED_COLOR_CYAN, 150, 100);
-            companion_report_pending = false;
+    uint32_t now_ms = to_ms_since_boot(get_absolute_time());
+    if (raw_level != feedback_raw) {
+        feedback_raw = raw_level;
+        feedback_changed_ms = now_ms;
+    }
+    if (feedback_stable != feedback_raw &&
+        (uint32_t)(now_ms - feedback_changed_ms) >= PIPICO_GESTURE_DEBOUNCE_MS) {
+        feedback_stable = feedback_raw;
+        if (feedback_stable == PIPICO_GESTURE_PRESSED_LEVEL &&
+            !in.command_busy && !in.cancel_unwind && !in.up_pending &&
+            !in.otp_typing && in.mounted && !in.suspended) {
+            (void)led_try_blink_n_times(1, LED_COLOR_CYAN, 80, 60);
         }
     }
 
-    pipico_glue_tick(to_ms_since_boot(get_absolute_time()),
+    pipico_glue_tick(now_ms,
                      raw_level, &in, &device_glue_ops);
 }
 

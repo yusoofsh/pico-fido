@@ -59,11 +59,14 @@ next power cycle or reset.
    transmitter (`kb_tx_claim`/`kb_tx_add_buffer`/`kb_tx_release` with
    `KB_TX_OWNER_COMPANION`). The only usages ever sent are F13–F16
    (0x68–0x6B); the paired all-released report is the transmitter's own
-   guarantee. The glue never sends TinyUSB reports directly. After the HID
-   task has drained both reports, the firmware requests one short cyan blink
-   as a best-effort “gesture sent” acknowledgement. It is not emitted when
-   the report is dropped, the device disconnects, or a FIDO processing,
-   user-presence, suspend, or success indication is already active.
+   guarantee. The glue never sends TinyUSB reports directly.
+
+USR press feedback is one 80 ms LED pulse after 20 ms of stable contact.
+Each press requests at most one pulse; holding does not repeat it. Very
+rapid presses can merge while the previous pulse is active.
+This indicates physical contact, not successful
+key delivery. It is skipped during authentication, OTP typing, suspension,
+disconnect, or any protected FIDO LED indication.
 
 ## Busy mapping (auth busy)
 
