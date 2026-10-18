@@ -46,7 +46,6 @@ uint8_t credentialCounter = 1;
 uint8_t numberOfCredentialsx = 0;
 uint8_t flagsx = 0;
 uint32_t timerx = 0;
-uint32_t channelx = 0;
 uint8_t *datax = NULL;
 size_t lenx = 0;
 
@@ -61,7 +60,6 @@ void reset_gna_state(void) {
     lenx = 0;
     residentx = false;
     timerx = 0;
-    channelx = 0;
     flagsx = 0;
     credentialCounter = 0;
     numberOfCredentialsx = 0;
@@ -71,10 +69,11 @@ int cbor_get_next_assertion(const uint8_t *data, size_t len) {
     (void) data;
     (void) len;
     CborError error = CborNoError;
-    uint32_t channel = ctap_req ? ctap_req->cid : 0;
-    if (channelx != channel) {
-        CBOR_ERROR(CTAP2_ERR_NOT_ALLOWED);
-    }
+    /* No CTAPHID channel binding: WebKit opens a new channel for every
+       request, so binding the walk to the getAssertion channel made Safari
+       fail with NOT_ALLOWED whenever an RP had more than one credential.
+       Any other CBOR command still discards the walk (cbor_parse), and the
+       idle timer below still applies, as CTAP requires. */
     if (credentialCounter >= numberOfCredentialsx) {
         CBOR_ERROR(CTAP2_ERR_NOT_ALLOWED);
     }
@@ -610,7 +609,6 @@ int cbor_get_assertion(const uint8_t *data, size_t len, bool next) {
                 lenx = len;
                 flagsx = flags;
                 timerx = board_millis();
-                channelx = ctap_req ? ctap_req->cid : 0;
                 credentialCounter = 1;
             }
         }
