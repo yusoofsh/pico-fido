@@ -50,9 +50,6 @@ int u2f_unload(void) {
     return PICOKEYS_OK;
 }
 
-const uint8_t *bogus_firefox = (const uint8_t *) "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00";
-const uint8_t *bogus_chrome = (const uint8_t *) "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
-
 int cmd_register(void) {
     CTAP_REGISTER_REQ *req = (CTAP_REGISTER_REQ *) apdu.data;
     CTAP_REGISTER_RESP *resp = (CTAP_REGISTER_RESP *) res_APDU;
@@ -63,12 +60,13 @@ int cmd_register(void) {
     if (apdu.nc != CTAP_APPID_SIZE + CTAP_CHAL_SIZE) {
         return SW_WRONG_LENGTH();
     }
+    /* Browsers send a dummy register (appId all 'A' or all zeros) only to
+       wait for a touch, then read the APDU status word. Answer it like any
+       other register: a bare CTAPHID error is unparseable to WebKit, which
+       then restarts discovery and leaves its dialog waiting forever. */
     if (wait_button_pressed() > 0) {
         return SW_CONDITIONS_NOT_SATISFIED();
     }
-    if (memcmp(req->appId, bogus_firefox,
-               CTAP_APPID_SIZE) == 0 || memcmp(req->appId, bogus_chrome, CTAP_APPID_SIZE) == 0)
-    { return ctap_error(CTAP1_ERR_CHANNEL_BUSY); }
     mbedtls_ecdsa_context key;
     mbedtls_ecdsa_init(&key);
     int ret = derive_key(req->appId, true, resp->keyHandleCertSig, MBEDTLS_ECP_DP_SECP256R1, &key);
