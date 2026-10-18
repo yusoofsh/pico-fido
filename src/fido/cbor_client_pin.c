@@ -344,9 +344,10 @@ void pin_uv_auth_token_tick(void) {
 }
 
 static int check_keydev_encrypted(const uint8_t pin_token[32]) {
-    if (file_get_data(ef_keydev) && *file_get_data(ef_keydev) == 0x01) {
+    const uint8_t *keydev_data = file_get_data(ef_keydev);
+    if (keydev_data && (*keydev_data == 0x01 || *keydev_data == 0x11)) {
         uint8_t tmp_keydev[61];
-        tmp_keydev[0] = 0x03; // Change format to encrypted
+        tmp_keydev[0] = (uint8_t)((*keydev_data & 0x10) | 0x03); // Change format to encrypted, keep the PUF binding
         int ret = encrypt_with_aad(pin_token, CONST_BYTE_ARRAY(file_get_data(ef_keydev) + 1, 32), 2, tmp_keydev + 1);
         if (ret != PICOKEYS_OK) {
             mbedtls_platform_zeroize(tmp_keydev, sizeof(tmp_keydev));

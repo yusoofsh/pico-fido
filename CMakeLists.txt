@@ -378,6 +378,26 @@ if(NOT ESP_PLATFORM)
         endif()
         add_test(NAME fido_storage_locked_test COMMAND fido_storage_locked_test)
 
+        # EF_KEY_DEV binding to the SRAM PUF root key and the legacy
+        # migration, against the real fido.c on the emulated flash.
+        add_executable(fido_puf_keydev_test
+            ${FIDO_STORAGE_LOCKED_TEST_SOURCES}
+            ${CMAKE_CURRENT_LIST_DIR}/tests/fido_puf_keydev_test.c
+        )
+        target_include_directories(fido_puf_keydev_test PRIVATE ${INCLUDES})
+        if(MSVC)
+            target_compile_options(fido_puf_keydev_test PRIVATE /W4 /WX)
+        else()
+            target_compile_options(fido_puf_keydev_test PRIVATE -Wall -Wextra -Werror)
+        endif()
+        target_link_libraries(fido_puf_keydev_test PRIVATE ${LIBRARIES})
+        if(NOT MSVC)
+            target_link_libraries(fido_puf_keydev_test PRIVATE pthread m)
+        endif()
+        if(APPLE)
+            target_link_libraries(fido_puf_keydev_test PRIVATE "-framework IOKit" "-framework CoreFoundation")
+        endif()
+        add_test(NAME fido_puf_keydev_test COMMAND fido_puf_keydev_test)
         # Pure gesture parser (USR button taps and holds): a time-injected
         # state machine with no SDK headers, one process per scenario so
         # ctest -R gesture selects them by name.

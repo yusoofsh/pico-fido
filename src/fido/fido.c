@@ -44,6 +44,7 @@
 #include "version.h"
 #include "crypto_utils.h"
 #include "otp.h"
+#include "puf.h"
 #include "event.h"
 #if defined(ENABLE_EMULATION)
 #include "usb/emulation/button_emul.h"
@@ -234,6 +235,58 @@ static int x509_create_cert(mbedtls_ecdsa_context *ecdsa, uint8_t *buffer, size_
     return ret;
 }
 
+// EF_KEY_DEV format bit: the inner CBC layer uses a key mixed from kbase and
+// the SRAM PUF root key instead of kbase alone, so a flash dump of this chip
+// no longer holds everything needed to recover the device key.
+#define KEYDEV_FORMAT_PUF 0x10
+
+static int keydev_inner(bool encrypt, bool puf_bound, uint8_t data[32]) {
+    uint8_t kbase[32], kek[32];
+    derive_kbase(kbase);
+    int ret = PICOKEYS_OK;
+    if (!puf_bound) {
+        memcpy(kek, kbase, sizeof(kek));
+    }
+    else if (puf_key == NULL ||
+             mbedtls_hkdf(mbedtls_md_info_from_type(MBEDTLS_MD_SHA256), kbase, sizeof(kbase), puf_key, PUF_ROOT_KEY_SIZE,
+                          (const uint8_t *)"PIPICO/KEYDEV/PUF", 17, kek, sizeof(kek)) != 0) {
+        ret = PICOKEYS_EXEC_ERROR;
+    }
+    if (ret == PICOKEYS_OK) {
+        ret = encrypt ? aes_encrypt(CONST_BYTE_ARRAY(kek, 32), pico_serial_hash, PICOKEYS_AES_MODE_CBC, BYTE_ARRAY(data, 32))
+                      : aes_decrypt(CONST_BYTE_ARRAY(kek, 32), pico_serial_hash, PICOKEYS_AES_MODE_CBC, BYTE_ARRAY(data, 32));
+    }
+    mbedtls_platform_zeroize(kbase, sizeof(kbase));
+    mbedtls_platform_zeroize(kek, sizeof(kek));
+    return ret;
+}
+
+// Persist the plaintext device key: PUF-bound whenever the PUF key is
+// available, and wrapped under pin_token (formats 0x03/0x13) when given.
+static int keydev_store(const uint8_t keydev[32], const uint8_t *pin_token) {
+    const uint8_t puf_bit = puf_key != NULL ? KEYDEV_FORMAT_PUF : 0;
+    uint8_t inner[32], out[61];
+    size_t len = 33;
+    memcpy(inner, keydev, sizeof(inner));
+    int ret = keydev_inner(true, puf_bit != 0, inner);
+    if (ret == PICOKEYS_OK && pin_token != NULL) {
+        out[0] = puf_bit | 0x03;
+        ret = encrypt_with_aad(pin_token, CONST_BYTE_ARRAY(inner, 32), 2, out + 1);
+        len = 61;
+    }
+    else if (ret == PICOKEYS_OK) {
+        out[0] = puf_bit | 0x01;
+        memcpy(out + 1, inner, 32);
+    }
+    if (ret == PICOKEYS_OK) {
+        ret = file_put_data(ef_keydev, CONST_BYTE_ARRAY(out, len));
+        flash_commit();
+    }
+    mbedtls_platform_zeroize(inner, sizeof(inner));
+    mbedtls_platform_zeroize(out, sizeof(out));
+    return ret;
+}
+
 int load_keydev(uint8_t key[32]) {
     bool pin_wrapped = false;
 
@@ -254,10 +307,11 @@ int load_keydev(uint8_t key[32]) {
         }
         else if (fid_size == 33 || fid_size == 61) {
             uint8_t format = *file_get_data(ef_keydev);
-            if (format == 0x01 || format == 0x02 || format == 0x03) { // Format indicator
-                if (format == 0x02 || format == 0x03) {
+            const bool puf_bound = (format & KEYDEV_FORMAT_PUF) != 0;
+            if (format == 0x01 || format == 0x02 || format == 0x03 || format == 0x11 || format == 0x13) { // Format indicator
+                if (format == 0x02 || format == 0x03 || format == 0x13) {
                     pin_wrapped = true;
-                    uint8_t tmp_key[61], version = format == 0x03 ? 2 : 1;
+                    uint8_t tmp_key[61], version = format == 0x02 ? 1 : 2;
                     memcpy(tmp_key, file_get_data(ef_keydev), sizeof(tmp_key));
                     int ret = decrypt_with_aad(session_pin, CONST_BYTE_ARRAY(tmp_key + 1, 60), version, key);
                     if (ret != PICOKEYS_OK) {
@@ -278,14 +332,16 @@ int load_keydev(uint8_t key[32]) {
                 else {
                     memcpy(key, file_get_data(ef_keydev) + 1, 32);
                 }
-                uint8_t kbase[32];
-                derive_kbase(kbase);
-                int ret = aes_decrypt(CONST_BYTE_ARRAY(kbase, 32), pico_serial_hash, PICOKEYS_AES_MODE_CBC, BYTE_ARRAY(key, 32));
-                if (ret != PICOKEYS_OK) {
-                    mbedtls_platform_zeroize(kbase, sizeof(kbase));
+                if (keydev_inner(false, puf_bound, key) != PICOKEYS_OK) {
+                    mbedtls_platform_zeroize(key, 32);
                     return PICOKEYS_EXEC_ERROR;
                 }
-                mbedtls_platform_zeroize(kbase, sizeof(kbase));
+                if (!puf_bound && puf_key != NULL && keydev_store(key, pin_wrapped ? session_pin : NULL) != PICOKEYS_OK) {
+                    printf("WARN: keydev not yet bound to the SRAM PUF\n");
+                }
+            }
+            else {
+                return PICOKEYS_EXEC_ERROR;
             }
         }
     }
@@ -382,20 +438,7 @@ int derive_key(const uint8_t *app_id, bool new_key, uint8_t *key_handle, int cur
 }
 
 int encrypt_keydev_f1(const uint8_t keydev[32]) {
-    uint8_t kdata[33] = {0};
-    kdata[0] = 0x01; // Format indicator
-    memcpy(kdata + 1, keydev, 32);
-    uint8_t kbase[32];
-    derive_kbase(kbase);
-    int ret = aes_encrypt(CONST_BYTE_ARRAY(kbase, 32), pico_serial_hash, PICOKEYS_AES_MODE_CBC, BYTE_ARRAY(kdata + 1, 32));
-    mbedtls_platform_zeroize(kbase, sizeof(kbase));
-    if (ret != PICOKEYS_OK) {
-        return ret;
-    }
-    ret = file_put_data(ef_keydev, CONST_BYTE_ARRAY(kdata, 33));
-    mbedtls_platform_zeroize(kdata, sizeof(kdata));
-    flash_commit();
-    return ret;
+    return keydev_store(keydev, NULL);
 }
 
 int scan_files_fido(void) {
