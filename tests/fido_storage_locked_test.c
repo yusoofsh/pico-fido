@@ -48,6 +48,13 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+// The SDK main.c (and its weak default) is not linked into this test.
+uint16_t picokey_read_diagnostics(uint8_t *buffer, uint16_t capacity) {
+    (void)buffer;
+    (void)capacity;
+    return 0;
+}
+
 // The locked errors documented in docs/pipico/LAYOUT.md: CTAP2 requests are
 // refused with CTAP1_ERR_OTHER, APDU applications with SW 0x6A84.
 #define LOCKED_CTAP_ERROR CTAP1_ERR_OTHER
