@@ -111,7 +111,10 @@ def test_get_assertion_allow_list_filtering_and_buffering(device):
 
     assert counts in [(1, 1), (l1, l2)]
 
-def test_get_next_assertion_rejects_a_different_channel(device):
+def test_get_next_assertion_accepts_a_different_channel(device):
+    # WebKit opens a new CTAPHID channel for every request, so the walk is
+    # not bound to the channel of getAssertion. The idle timer and the
+    # "no other command in between" rule still end it.
     rp = {"id": "channel.example.com", "name": "Channel test"}
     for index in range(3):
         device.doMC(rp=rp, rk=True, user={
@@ -126,11 +129,14 @@ def test_get_next_assertion_rejects_a_different_channel(device):
     other_cid = (old_cid + 1) & 0xffffffff
     device.set_cid(other_cid.to_bytes(4, "big"))
     try:
-        with pytest.raises(CtapError) as e:
-            device.GNA()
-        assert e.value.code == CtapError.ERR.NOT_ALLOWED
+        assert device.GNA() is not None
     finally:
         device.set_cid(old_cid.to_bytes(4, "big"))
+
+    assert device.GNA() is not None
+    with pytest.raises(CtapError) as e:
+        device.GNA()
+    assert e.value.code == CtapError.ERR.NOT_ALLOWED
 
 def test_corrupt_credId(device, MCRes):
     # apply bit flip
